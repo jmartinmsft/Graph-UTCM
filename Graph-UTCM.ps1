@@ -1186,9 +1186,6 @@ catch{
             "Entra" {
                 #GET /servicePrincipals(appId='{appId}')
                 $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
-                #$Graph = Get-MgServicePrincipal -Filter "AppId eq '00000003-0000-0000-c000-000000000000'"
-                #$Exchange = Get-MgServicePrincipal -Filter "AppId eq '00000002-0000-0ff1-ce00-000000000000'"
-                #$UTCM = Get-MgServicePrincipal -Filter "AppId eq '03b07b79-c5bc-4b5e-9bfa-13acf4a99998'"
                 $Query = "servicePrincipals(appId='00000003-0000-0000-c000-000000000000')"
                 $GraphParams = @{
                     AccessToken         = $Script:Token
@@ -1214,7 +1211,7 @@ catch{
                         ExpectedStatusCode = "201"
                         Endpoint            = "v1.0"
                         Body                = (@{
-                            "principalId" = $Script:applicationInfo.ClientID
+                            "principalId" = $UTCMServicePrincipalId
                             "resourceId"  = $GraphServicePrincipalId
                             "appRoleId"   = ($GraphServicePrincipal.appRoles | Where-Object { $_.value -eq $permission }).id
                         } | ConvertTo-Json)
@@ -1225,6 +1222,49 @@ catch{
                     }
                     catch {
                         Write-Host "Failed to assign $permission permission to the application for Entra resources" -ForegroundColor Red
+                        Write-VerboseErrorInformation
+                    }
+                }
+            }
+            "Exchange" {
+                Write-Host "Assigning permissions for Exchange resources is not implemented in this script yet" -ForegroundColor Green
+                $exchangePermissions = @('Exchange.ManageAsApp')
+                $Query = "servicePrincipals(appId='00000002-0000-0ff1-ce00-000000000000')"
+                $GraphParams = @{
+                    AccessToken         = $Script:Token
+                    GraphApiUrl         = $cloudService.graphApiEndpoint
+                    Query               = $Query
+                    Method              = "GET"
+                    ExpectedStatusCode = "200"
+                    Endpoint            = "v1.0"
+                }
+                $ExchangeServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+                $ExchangeServicePrincipalId = $ExchangeServicePrincipal.id
+                $Query = "servicePrincipals(appId='03b07b79-c5bc-4b5e-9bfa-13acf4a99998')"
+                $GraphParams.Query = $Query
+                $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+                $UTCMServicePrincipalId = $UTCMServicePrincipal.id
+                foreach($permission in $exchangePermissions) {
+                    Write-Host "Assigning $permission permission to the application for Exchange resources..." -ForegroundColor Green
+                    $GraphParams = @{
+                        AccessToken         = $Script:Token
+                        GraphApiUrl         = $cloudService.graphApiEndpoint
+                        Query               = "servicePrincipals/$ExchangeServicePrincipalId/appRoleAssignedTo"
+                        Method              = "POST"
+                        ExpectedStatusCode = "201"
+                        Endpoint            = "v1.0"
+                        Body                = (@{
+                            "principalId" = $UTCMServicePrincipalId
+                            "resourceId"  = $ExchangeServicePrincipalId
+                            "appRoleId"   = ($ExchangeServicePrincipal.appRoles | Where-Object { $_.value -eq $permission }).id
+                        } | ConvertTo-Json)
+                    }
+                    try {
+                        Invoke-GraphApiRequest @GraphParams
+                        Write-Host "Successfully assigned $permission permission to the application for Exchange resources" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Host "Failed to assign $permission permission to the application for Exchange resources" -ForegroundColor Red
                         Write-VerboseErrorInformation
                     }
                 }
