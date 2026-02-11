@@ -52,7 +52,7 @@ param (
 
     [Parameter(Mandatory=$false)] [Array]$Scope= @("Mail.ReadWrite","Mail.Send"),
 
-    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","GetConfigurationSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors")]
+    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","ExportSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors","AssignPermissions")]
     [Parameter(Mandatory = $false)]
     [string]$Operation = "GetSnapshot",
 
@@ -73,7 +73,11 @@ param (
     [string]$ResourceLocation,
 
     [Parameter(Mandatory = $false, HelpMessage="The BaselineObject parameter specifies the baseline object.")]
-    $BaselineObject
+    $BaselineObject,
+
+    [ValidateScript({ Test-Path $_ })]
+    [Parameter(Mandatory = $true, HelpMessage="The OutputPath parameter specifies the path for the EWS usage report.")]
+    [string] $OutputPath
 )
 function Get-CloudServiceEndpoint {
     [CmdletBinding()]
@@ -973,6 +977,155 @@ function Invoke-GraphApiRequest {
     }
 }
 
+function GetGraphServicePrincipal{
+    $Query = "servicePrincipals(appId='00000003-0000-0000-c000-000000000000')"
+    $GraphParams = @{
+        AccessToken         = $Script:Token
+        GraphApiUrl         = $cloudService.graphApiEndpoint
+        Query               = $Query
+        Method              = "GET"
+        ExpectedStatusCode = "200"
+        Endpoint            = "v1.0"
+    }
+    $GraphServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+    return $GraphServicePrincipal
+}
+
+function GetUTCMServicePrincipal{
+    $Query = "servicePrincipals(appId='03b07b79-c5bc-4b5e-9bfa-13acf4a99998')"
+    $GraphParams = @{
+        AccessToken         = $Script:Token
+        GraphApiUrl         = $cloudService.graphApiEndpoint
+        Query               = $Query
+        Method              = "GET"
+        ExpectedStatusCode = "200"
+        Endpoint            = "v1.0"
+    }
+    $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+    return $UTCMServicePrincipal
+}
+
+function GetExchangeServicePrincipal{
+    $Query = "servicePrincipals(appId='00000002-0000-0000-c000-000000000000')"
+    $GraphParams = @{
+        AccessToken         = $Script:Token
+        GraphApiUrl         = $cloudService.graphApiEndpoint
+        Query               = $Query
+        Method              = "GET"
+        ExpectedStatusCode = "200"
+        Endpoint            = "v1.0"
+    }
+    $ExchangeServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+    return $ExchangeServicePrincipal
+}
+
+function AssignAppPermissions{
+    param(
+        [object]$Permissions,
+        $ResourcePrincipal,
+        $UTCMServicePrincipal
+    )
+    foreach($permission in $Permissions) {
+        Write-Host "Assigning $permission permission to the application for the resources..." -ForegroundColor Green
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = "servicePrincipals/$($ResourcePrincipal.id)/appRoleAssignedTo"
+            Method              = "POST"
+            ExpectedStatusCode = "201"
+            Endpoint            = "v1.0"
+            Body                = (@{
+                "principalId" = $UTCMServicePrincipal.id
+                "resourceId"  = $ResourcePrincipal.id
+                "appRoleId"   = ($($ResourcePrincipal.appRoles) | Where-Object { $_.value -eq $permission }).id
+            } | ConvertTo-Json)
+        }
+        try {
+            Invoke-GraphApiRequest @GraphParams
+            Write-Host "Successfully assigned $permission permission to the application for Entra resources" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "Failed to assign $permission permission to the application for Entra resources" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
+    }
+}
+
+function AssignAppRoles{
+    #GET https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions?$filter=displayName eq 'Global Reader'&$select=id,displayName
+    param(
+        [object]$Roles,
+        $GraphServicePrincipal
+    )
+    foreach($role in $Roles){
+        $Query = "roleManagement/directory/roleDefinitions?`$filter=displayName eq '$($role)'"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "v1.0"
+        }
+        $RoleDefinition = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        $Query = "roleManagement/directory/roleAssignments"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "POST"
+            ExpectedStatusCode = "201"
+            Endpoint            = "v1.0"
+            Body                = (@{
+                "@odata.type" = "#microsoft.graph.unifiedRoleAssignment"
+                "principalId" = $GraphServicePrincipal.id
+                "roleDefinitionId" = $RoleDefinition.value.id
+                "directoryScopeId" = "/"
+            } | ConvertTo-Json)
+        }
+        try {
+        Invoke-GraphApiRequest @GraphParams
+        Write-Host "Successfully assigned $($role) role to the application for Entra resources" -ForegroundColor Green
+        }
+        catch {
+        Write-Host "Failed to assign $($role) role to the application for Entra resources" -ForegroundColor Red
+        Write-VerboseErrorInformation
+        }
+    }
+}
+
+function GetConfigurationSnapshot{
+    param(
+        [string]$ResourceLocation
+    )
+    Write-Host "Getting the configuration snapshot for snapshot job with ID $($SnapshotJobId)..." -ForegroundColor Green
+    $Query = $ResourceLocation.Replace("https://graph.microsoft.com/beta/","")
+    $GraphParams = @{
+        AccessToken         = $Script:Token
+        GraphApiUrl         = $cloudService.graphApiEndpoint
+        Query               = $Query
+        Method              = "GET"
+        ExpectedStatusCode = "200"
+        Endpoint            = "beta"
+    }
+    $Global:configurationSnapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+    return $Global:configurationSnapshot
+}
+
+function GetSnapshot{
+    $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)"
+    $GraphParams = @{
+        AccessToken         = $Script:Token
+        GraphApiUrl         = $cloudService.graphApiEndpoint
+        Query               = $Query
+        Method              = "GET"
+        ExpectedStatusCode = "200"
+        Endpoint            = "beta"
+    }
+    $Global:snapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+    return $Global:snapshot
+}
+
 $cloudService = Get-CloudServiceEndpoint $AzureEnvironment
 $azureADEndpoint = $cloudService.AzureADEndpoint
 $Script:applicationInfo = @{
@@ -981,8 +1134,6 @@ $Script:applicationInfo = @{
 }
 
 Get-OAuthToken
-
-#POST /admin/configurationManagement/configurationSnapshots/createSnapshot
 
 switch($Operation){
     "CreateSnapshot" {
@@ -1062,19 +1213,10 @@ catch{
 }
     }
     "GetSnapshot" {
-        Write-Host "Getting the latest snapshot for $($Resource) resources..." -ForegroundColor Green
-        $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)"
-        $GraphParams = @{
-            AccessToken         = $Script:Token
-            GraphApiUrl         = $cloudService.graphApiEndpoint
-            Query               = $Query
-            Method              = "GET"
-            ExpectedStatusCode = "200"
-            Endpoint            = "beta"
-        }
-        $Global:snapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        Write-Host "Getting the latest snapshot for $($SnapshotJobId) resources..." -ForegroundColor Green
+        GetSnapshot | Out-Null
         Write-Host "Snapshot Job ID $($SnapshotJobId): " -NoNewline
-        Write-Host $Global:snapshot.value.status -ForegroundColor Green    
+        Write-Host $Global:snapshot.status -ForegroundColor Green    
     }
     "DeleteSnapshot" {
         Write-Host "Deleting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
@@ -1120,21 +1262,6 @@ catch{
         Write-Host "Error details for snapshot job with ID $($SnapshotJobId):" -ForegroundColor Green
         Write-Host ($Global:errorDetails | ConvertTo-Json -Depth 10)
     }
-    "GetConfigurationSnapshot" {
-        Write-Host "Getting the configuration snapshot for snapshot job with ID $($SnapshotJobId)..." -ForegroundColor Green
-        $Query = $ResourceLocation.Replace("https://graph.microsoft.com/beta/","")
-        $GraphParams = @{
-            AccessToken         = $Script:Token
-            GraphApiUrl         = $cloudService.graphApiEndpoint
-            Query               = $Query
-            Method              = "GET"
-            ExpectedStatusCode = "200"
-            Endpoint            = "beta"
-        }
-        $Global:configurationSnapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        Write-Host "Configuration snapshot for snapshot job with ID $($SnapshotJobId):" -ForegroundColor Green
-        Write-Host ($Global:configurationSnapshot | ConvertTo-Json -Depth 10)
-    }
     "CreateConfigurationMonitor" {
         Write-Host "Creating a new configuration monitor for $($Resource) resources..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationMonitors"
@@ -1166,6 +1293,7 @@ catch{
          }
     }
     "ListConfigurationMonitors"{}
+
     "GetConfigurationMonitor"{
         Write-Host "Getting configuration monitor with ID $($ConfigurationMonitorId)..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationMonitors/$($ConfigurationMonitorId)"
@@ -1184,91 +1312,59 @@ catch{
     "AssignPermissions"{
         switch($Resource){
             "Entra" {
-                #GET /servicePrincipals(appId='{appId}')
+                $entraRoles = @('Security Reader', 'Global Reader')
                 $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
-                $Query = "servicePrincipals(appId='00000003-0000-0000-c000-000000000000')"
-                $GraphParams = @{
-                    AccessToken         = $Script:Token
-                    GraphApiUrl         = $cloudService.graphApiEndpoint
-                    Query               = $Query
-                    Method              = "GET"
-                    ExpectedStatusCode = "200"
-                    Endpoint            = "v1.0"
-                }
-                $GraphServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-                $GraphServicePrincipalId = $GraphServicePrincipal.id
-                $Query = "servicePrincipals(appId='03b07b79-c5bc-4b5e-9bfa-13acf4a99998')"
-                $GraphParams.Query = $Query
-                $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-                $UTCMServicePrincipalId = $UTCMServicePrincipal.id
-                foreach($permission in $entraPermissions) {
-                    Write-Host "Assigning $permission permission to the application for Entra resources..." -ForegroundColor Green
-                    $GraphParams = @{
-                        AccessToken         = $Script:Token
-                        GraphApiUrl         = $cloudService.graphApiEndpoint
-                        Query               = "servicePrincipals/$GraphServicePrincipalId/appRoleAssignedTo"
-                        Method              = "POST"
-                        ExpectedStatusCode = "201"
-                        Endpoint            = "v1.0"
-                        Body                = (@{
-                            "principalId" = $UTCMServicePrincipalId
-                            "resourceId"  = $GraphServicePrincipalId
-                            "appRoleId"   = ($GraphServicePrincipal.appRoles | Where-Object { $_.value -eq $permission }).id
-                        } | ConvertTo-Json)
-                    }
-                    try {
-                        Invoke-GraphApiRequest @GraphParams
-                        Write-Host "Successfully assigned $permission permission to the application for Entra resources" -ForegroundColor Green
-                    }
-                    catch {
-                        Write-Host "Failed to assign $permission permission to the application for Entra resources" -ForegroundColor Red
-                        Write-VerboseErrorInformation
-                    }
-                }
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $entraPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                Write-Host "Adding Entra roles to the application is not implemented in this script yet" -ForegroundColor Green
+                AssignAppRoles -Roles $entraRoles -GraphServicePrincipal $GraphServicePrincipal
             }
             "Exchange" {
+                $exchangeRoles = @('Security Reader', 'Global Reader')
                 Write-Host "Assigning permissions for Exchange resources is not implemented in this script yet" -ForegroundColor Green
                 $exchangePermissions = @('Exchange.ManageAsApp')
-                $Query = "servicePrincipals(appId='00000002-0000-0ff1-ce00-000000000000')"
-                $GraphParams = @{
-                    AccessToken         = $Script:Token
-                    GraphApiUrl         = $cloudService.graphApiEndpoint
-                    Query               = $Query
-                    Method              = "GET"
-                    ExpectedStatusCode = "200"
-                    Endpoint            = "v1.0"
-                }
-                $ExchangeServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-                $ExchangeServicePrincipalId = $ExchangeServicePrincipal.id
-                $Query = "servicePrincipals(appId='03b07b79-c5bc-4b5e-9bfa-13acf4a99998')"
-                $GraphParams.Query = $Query
-                $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-                $UTCMServicePrincipalId = $UTCMServicePrincipal.id
-                foreach($permission in $exchangePermissions) {
-                    Write-Host "Assigning $permission permission to the application for Exchange resources..." -ForegroundColor Green
-                    $GraphParams = @{
-                        AccessToken         = $Script:Token
-                        GraphApiUrl         = $cloudService.graphApiEndpoint
-                        Query               = "servicePrincipals/$ExchangeServicePrincipalId/appRoleAssignedTo"
-                        Method              = "POST"
-                        ExpectedStatusCode = "201"
-                        Endpoint            = "v1.0"
-                        Body                = (@{
-                            "principalId" = $UTCMServicePrincipalId
-                            "resourceId"  = $ExchangeServicePrincipalId
-                            "appRoleId"   = ($ExchangeServicePrincipal.appRoles | Where-Object { $_.value -eq $permission }).id
-                        } | ConvertTo-Json)
-                    }
-                    try {
-                        Invoke-GraphApiRequest @GraphParams
-                        Write-Host "Successfully assigned $permission permission to the application for Exchange resources" -ForegroundColor Green
-                    }
-                    catch {
-                        Write-Host "Failed to assign $permission permission to the application for Exchange resources" -ForegroundColor Red
-                        Write-VerboseErrorInformation
-                    }
-                }
+                $ExchangeServicePrincipal = GetExchangeServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $exchangePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $exchangeRoles -GraphServicePrincipal $GraphServicePrincipal
             }
+            "Intune" {
+                Write-Host "Assigning permissions for Intune resources is not implemented in this script yet" -ForegroundColor Green
+                $intunePermissions = @('Group.Read.All','DeviceManagementConfiguration.Read.All','DeviceManagementApps.Read.All')
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $intunePermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+            }
+            "Teams"{
+                $teamsRoles = @('Global Reader')
+                Write-Host "Assigning permissions for Teams resources is not implemented in this script yet" -ForegroundColor Green
+                $teamsPermissions = @('Organizatino.Read.All','Team.ReadBasic.All')
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $teamsPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $teamsRoles -GraphServicePrincipal $GraphServicePrincipal
+            }
+            "SecurityAndCompliance"{
+                Write-Host "Assigning permissions for Security and Compliance resources is not implemented in this script yet" -ForegroundColor Green
+                $secComplianceRoles = @('Security Reader','Compliance Administrator')
+                $secCompliancePermissions = @('Exchange.ManageAsApp')
+                $ExchangeServicePrincipal = GetExchangeServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $secCompliancePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $secComplianceRoles -GraphServicePrincipal $GraphServicePrincipal
+            }
+        }
+    }
+    "ExportSnapshot"{
+        Write-Host "Exporting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
+        GetSnapshot | Out-Null
+        if($Global:snapshot.status -eq "succeeded"){
+            $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
+            $configSnapshot | ConvertTo-Json -Depth 100 | Out-File -FilePath "$($OutputPath)\Snapshot-$($SnapshotJobId).json" -Encoding UTF8
+        }
+        else{
+            Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeeded state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
         }
     }
 }
