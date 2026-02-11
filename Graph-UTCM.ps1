@@ -52,22 +52,29 @@ param (
 
     [Parameter(Mandatory=$false)] [Array]$Scope= @("Mail.ReadWrite","Mail.Send"),
 
-    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","GetConfigurationSnapshot","CreateConfigurationMonitor")]
+    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","GetConfigurationSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors")]
     [Parameter(Mandatory = $false)]
     [string]$Operation = "GetSnapshot",
 
     [Parameter(Mandatory = $false, HelpMessage="The SnapshotJobId parameter specifies the GUID of the snapshot job.")]
     [System.Guid]$SnapshotJobId,
 
+    [Parameter(Mandatory = $false, HelpMessage="The ConfigurationMonitorId parameter specifies the GUID of the configuration monitor.")]
+    [System.Guid]$ConfigurationMonitorId,
+
     [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams")]
     [Parameter(Mandatory = $false)]
     [string]$Resource = "Exchange",
 
-    $ResourceLocation,
-    $BaselineObject,
-    [string]$Name
-)
+    [Parameter(Mandatory = $false, HelpMessage="The Name parameter specifies the name of the snapshot to create.")]
+    [string]$Name,
 
+    [Parameter(Mandatory = $false, HelpMessage="The ResourceLocation parameter specifies the resource location of the configuration baseline.")]
+    [string]$ResourceLocation,
+
+    [Parameter(Mandatory = $false, HelpMessage="The BaselineObject parameter specifies the baseline object.")]
+    $BaselineObject
+)
 function Get-CloudServiceEndpoint {
     [CmdletBinding()]
     param(
@@ -1137,7 +1144,7 @@ catch{
             "baseline" = (@{
                 "displayName" = "$($Resource) Demo Baseline"
                 "description" = "Demo baseline for the outbound connector"
-                "resources" = ($BaselineObject.resources | Select-Object -Property displayName, resourceType, properties)
+                "resources" = @(($BaselineObject.resources | Select-Object -Property displayName, resourceType, properties))
             })
         })
         $GraphParams = @{
@@ -1157,6 +1164,72 @@ catch{
             Write-Host "Failed to create configuration monitor for $($Resource) resources" -ForegroundColor Red
             Write-VerboseErrorInformation
          }
+    }
+    "ListConfigurationMonitors"{}
+    "GetConfigurationMonitor"{
+        Write-Host "Getting configuration monitor with ID $($ConfigurationMonitorId)..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitors/$($ConfigurationMonitorId)"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:configurationMonitor = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        Write-Host "Configuration Monitor with ID $($ConfigurationMonitorId):" -ForegroundColor Green
+        Write-Host ($Global:configurationMonitor | ConvertTo-Json -Depth 10)
+    }
+    "AssignPermissions"{
+        switch($Resource){
+            "Entra" {
+                #GET /servicePrincipals(appId='{appId}')
+                $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
+                #$Graph = Get-MgServicePrincipal -Filter "AppId eq '00000003-0000-0000-c000-000000000000'"
+                #$Exchange = Get-MgServicePrincipal -Filter "AppId eq '00000002-0000-0ff1-ce00-000000000000'"
+                #$UTCM = Get-MgServicePrincipal -Filter "AppId eq '03b07b79-c5bc-4b5e-9bfa-13acf4a99998'"
+                $Query = "servicePrincipals(appId='00000003-0000-0000-c000-000000000000')"
+                $GraphParams = @{
+                    AccessToken         = $Script:Token
+                    GraphApiUrl         = $cloudService.graphApiEndpoint
+                    Query               = $Query
+                    Method              = "GET"
+                    ExpectedStatusCode = "200"
+                    Endpoint            = "v1.0"
+                }
+                $GraphServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+                $GraphServicePrincipalId = $GraphServicePrincipal.id
+                $Query = "servicePrincipals(appId='03b07b79-c5bc-4b5e-9bfa-13acf4a99998')"
+                $GraphParams.Query = $Query
+                $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+                $UTCMServicePrincipalId = $UTCMServicePrincipal.id
+                foreach($permission in $entraPermissions) {
+                    Write-Host "Assigning $permission permission to the application for Entra resources..." -ForegroundColor Green
+                    $GraphParams = @{
+                        AccessToken         = $Script:Token
+                        GraphApiUrl         = $cloudService.graphApiEndpoint
+                        Query               = "servicePrincipals/$GraphServicePrincipalId/appRoleAssignedTo"
+                        Method              = "POST"
+                        ExpectedStatusCode = "201"
+                        Endpoint            = "v1.0"
+                        Body                = (@{
+                            "principalId" = $Script:applicationInfo.ClientID
+                            "resourceId"  = $GraphServicePrincipalId
+                            "appRoleId"   = ($GraphServicePrincipal.appRoles | Where-Object { $_.value -eq $permission }).id
+                        } | ConvertTo-Json)
+                    }
+                    try {
+                        Invoke-GraphApiRequest @GraphParams
+                        Write-Host "Successfully assigned $permission permission to the application for Entra resources" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Host "Failed to assign $permission permission to the application for Entra resources" -ForegroundColor Red
+                        Write-VerboseErrorInformation
+                    }
+                }
+            }
+        }
     }
 }
 
