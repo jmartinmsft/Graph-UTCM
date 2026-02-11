@@ -52,7 +52,7 @@ param (
 
     [Parameter(Mandatory=$false)] [Array]$Scope= @("Mail.ReadWrite","Mail.Send"),
 
-    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails")]
+    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","GetConfigurationSnapshot","CreateConfigurationMonitor")]
     [Parameter(Mandatory = $false)]
     [string]$Operation = "GetSnapshot",
 
@@ -61,7 +61,11 @@ param (
 
     [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams")]
     [Parameter(Mandatory = $false)]
-    [string]$Resource = "Exchange"
+    [string]$Resource = "Exchange",
+
+    $ResourceLocation,
+    $BaselineObject,
+    [string]$Name
 )
 
 function Get-CloudServiceEndpoint {
@@ -972,13 +976,14 @@ $Script:applicationInfo = @{
 Get-OAuthToken
 
 #POST /admin/configurationManagement/configurationSnapshots/createSnapshot
-$Query = "admin/configurationManagement/configurationSnapshots/createSnapshot"
 
-#$utcmMonitor = (Invoke-WebRequest -Uri https://www.schemastore.org/utcm-monitor.json -UseBasicParsing) | ConvertFrom-Json
-#$utcmMonitor | ConvertTo-Json -Depth 100 | Out-File -FilePath ".\utcm-monitor.json" -Encoding UTF8
-$utcmMonitor = (Get-Content .\utcm-monitorall.json -Raw | ConvertFrom-Json)
-
-$resourceTypes = New-Object System.Collections.ArrayList
+switch($Operation){
+    "CreateSnapshot" {
+        $Query = "admin/configurationManagement/configurationSnapshots/createSnapshot"
+        #$utcmMonitor = (Invoke-WebRequest -Uri https://www.schemastore.org/utcm-monitor.json -UseBasicParsing) | ConvertFrom-Json
+        #$utcmMonitor | ConvertTo-Json -Depth 100 | Out-File -FilePath ".\utcm-monitor.json" -Encoding UTF8
+        $utcmMonitor = (Get-Content .\utcm-monitor.json -Raw | ConvertFrom-Json)
+        $resourceTypes = New-Object System.Collections.ArrayList
 switch($Resource) {
     "Entra" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
@@ -992,6 +997,10 @@ switch($Resource) {
             if($u.Name -like "microsoft.exchange*") {
                 $resourceTypes.Add($u.Name) | Out-Null
             }
+        }
+        $exchResourceTypes = $resourceTypes | Out-GridView -Title "Select Exchange resource types to include in the snapshot" -PassThru
+        if ($null -ne $exchResourceTypes -and $exchResourceTypes.Count -gt 0) {
+            $resourceTypes = [System.Collections.ArrayList]@($exchResourceTypes)
         }
     }
     "Intune" {
@@ -1017,11 +1026,10 @@ switch($Resource) {
     }
 }
 
-switch($Operation){
-    "CreateSnapshot" {
         Write-Host "Creating a new snapshot for $($Resource) resources..." -ForegroundColor Green
         $graphBody = (@{
-    "displayName" = "$($Resource) Snapshot"
+    #"displayName" = "$($Resource) Snapshot"
+    "displayName" = $Name
     "description" = "This snapshot was created by the UTCM Graph API test script for all $($Resource) resources"
     "resources" = @($resourceTypes)
     })
@@ -1037,11 +1045,18 @@ $GraphParams = @{
         }
 
 #$SearchResults = New-Object System.Collections.ArrayList
-$Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
+try{
+    $Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
+    Write-Host "Snapshot Job ID $($Global:configurationSnapshot.Content.id) created" -ForegroundColor Green
 }
-"GetSnapshot" {
+catch{
+    Write-Host "Failed to create snapshot job for $($Resource) resources" -ForegroundColor Red
+    Write-VerboseErrorInformation
+}
+    }
+    "GetSnapshot" {
         Write-Host "Getting the latest snapshot for $($Resource) resources..." -ForegroundColor Green
-        $Query = "admin/configurationManagement/configurationSnapshotJobs/"#$($SnapshotJobId)"
+        $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)"
         $GraphParams = @{
             AccessToken         = $Script:Token
             GraphApiUrl         = $cloudService.graphApiEndpoint
@@ -1098,4 +1113,50 @@ $Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
         Write-Host "Error details for snapshot job with ID $($SnapshotJobId):" -ForegroundColor Green
         Write-Host ($Global:errorDetails | ConvertTo-Json -Depth 10)
     }
+    "GetConfigurationSnapshot" {
+        Write-Host "Getting the configuration snapshot for snapshot job with ID $($SnapshotJobId)..." -ForegroundColor Green
+        $Query = $ResourceLocation.Replace("https://graph.microsoft.com/beta/","")
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:configurationSnapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        Write-Host "Configuration snapshot for snapshot job with ID $($SnapshotJobId):" -ForegroundColor Green
+        Write-Host ($Global:configurationSnapshot | ConvertTo-Json -Depth 10)
+    }
+    "CreateConfigurationMonitor" {
+        Write-Host "Creating a new configuration monitor for $($Resource) resources..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitors"
+        $graphBody = (@{
+            "displayName" = "$($Resource) Demo Monitor"
+            "description" = "Demo monitor for the outbound connector"
+            "baseline" = (@{
+                "displayName" = "$($Resource) Demo Baseline"
+                "description" = "Demo baseline for the outbound connector"
+                "resources" = ($BaselineObject.resources | Select-Object -Property displayName, resourceType, properties)
+            })
+        })
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Body                = ($graphBody | ConvertTo-Json -Depth 6)
+            Query               = $Query
+            Method              = "POST"
+            ExpectedStatusCode = "201"
+            Endpoint            = "beta"
+        }
+        try{
+            $Global:configurationMonitor = Invoke-GraphApiRequest @GraphParams
+            Write-Host "Configuration Monitor ID $($Global:configurationMonitor.Content.id) created" -ForegroundColor Green
+        }
+        catch{
+            Write-Host "Failed to create configuration monitor for $($Resource) resources" -ForegroundColor Red
+            Write-VerboseErrorInformation
+         }
+    }
 }
+
