@@ -22,7 +22,7 @@
     SOFTWARE
 #>
 
-# Version 20260211.1921
+# Version 20260211.1957
 param (
     [ValidateSet("Global", "USGovernmentL4", "USGovernmentL5", "ChinaCloud")]
     [Parameter(Mandatory = $false, HelpMessage="The AzureEnvironment parameter specifies the cloud environment to target. Valid values are Global, USGovernmentL4, USGovernmentL5 and ChinaCloud. Default value is Global.")]
@@ -52,7 +52,7 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="The Scope parameter specifies the OAuth scopes for the token request.")]
     [object]$Scope= @("Mail.ReadWrite","Mail.Send"),
 
-    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","ExportSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors","AssignPermissions")]
+    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","ExportSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors","AssignPermissions","ListMonitoringResults","ListConfigurationDrifts","GetConfigurationDrift")]
     [Parameter(Mandatory = $true, HelpMessage="The Operation parameter specifies the operation to perform.")]
     [string]$Operation = "GetSnapshot",
 
@@ -62,15 +62,15 @@ param (
     [Parameter(Mandatory = $false, HelpMessage="The ConfigurationMonitorId parameter specifies the GUID of the configuration monitor.")]
     [System.Guid]$ConfigurationMonitorId,
 
+    [Parameter(Mandatory = $false, HelpMessage="The ConfigurationDriftId parameter specifies the GUID of the configuration drift.")]
+    [System.Guid]$ConfigurationDriftId,
+
     [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams")]
     [Parameter(Mandatory = $false, HelpMessage="The Resource parameter specifies the resource for which to create the configuration monitor. Valid values are Entra, Exchange, Intune, SecurityAndCompliance and Teams.")]
     [string]$Resource = "Exchange",
 
     [Parameter(Mandatory = $false, HelpMessage="The Name parameter specifies the name of the snapshot to create.")]
     [string]$Name,
-
-    [Parameter(Mandatory = $false, HelpMessage="The BaselineObject parameter specifies the baseline object.")]
-    $BaselineObject,
 
     [ValidateScript({ Test-Path $_ })]
     [Parameter(Mandatory = $false, HelpMessage="The OutputPath parameter specifies the path for the EWS usage report.")]
@@ -1127,12 +1127,17 @@ if($Operation -eq "CreateSnapshot" -and [System.String]::IsNullOrWhiteSpace($Nam
     Write-Host "Please provide a name for the snapshot using the -Name parameter when creating a snapshot." -ForegroundColor Red
     exit
 }
-if(($Operation -eq "GetSnapshot" -or $Operation -eq "DeleteSnapshot" -or $Operation -eq "ExportSnapshot") -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
+if(($Operation -eq "GetSnapshot" -or $Operation -eq "DeleteSnapshot" -or $Operation -eq "ExportSnapshot" -or $Operation -eq "CreateConfigurationMonitor") -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
     Write-Host "Please provide a snapshot job ID using the -SnapshotJobId parameter when getting, deleting, or exporting a snapshot." -ForegroundColor Red
     exit
 }
 if($Operation -eq "ExportSnapshot" -and [System.String]::IsNullOrWhiteSpace($OutputPath)){
     Write-Host "Please provide an export path using the -OutputPath parameter when exporting a snapshot." -ForegroundColor Red
+    exit
+}
+
+if($Operation -eq "GetConfigurationDrift" -and [System.String]::IsNullOrWhiteSpace($ConfigurationDriftId)){
+    Write-Host "Please provide a configuration drift ID using the -ConfigurationDriftId parameter when getting configuration drift." -ForegroundColor Red
     exit
 }
 
@@ -1273,13 +1278,20 @@ catch{
         Write-Host ($Global:errorDetails | ConvertTo-Json -Depth 10)
     }
     "CreateConfigurationMonitor" {
-        Write-Host "Creating a new configuration monitor for $($Resource) resources..." -ForegroundColor Green
+        Write-Host "Creating a new configuration monitor..." -ForegroundColor Green
+        GetSnapshot | Out-Null
+        if($Global:snapshot.status -eq "succeeded"){
+            $BaselineObject = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
+        }
+        else{
+            Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeeded state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
+        }
         $Query = "admin/configurationManagement/configurationMonitors"
         $graphBody = (@{
-            "displayName" = "$($Resource) Demo Monitor"
+            "displayName" = "Connectors Demo Monitor"
             "description" = "Demo monitor for the outbound connector"
             "baseline" = (@{
-                "displayName" = "$($Resource) Demo Baseline"
+                "displayName" = "Connectors Demo Baseline"
                 "description" = "Demo baseline for the outbound connector"
                 "resources" = @(($BaselineObject.resources | Select-Object -Property displayName, resourceType, properties))
             })
@@ -1302,7 +1314,22 @@ catch{
             Write-VerboseErrorInformation
          }
     }
-    "ListConfigurationMonitors"{}
+    "ListConfigurationMonitors"{
+        Write-Host "Listing configuration monitors..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitors"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:configurationMonitors = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        foreach($configurationMonitor in $Global:configurationMonitors.value) {
+            Write-Host "Configuration Monitor ID: $($configurationMonitor.id) Display Name: $($configurationMonitor.displayName)" -ForegroundColor Green
+        }
+    }
 
     "GetConfigurationMonitor"{
         Write-Host "Getting configuration monitor with ID $($ConfigurationMonitorId)..." -ForegroundColor Green
@@ -1319,6 +1346,7 @@ catch{
         Write-Host "Configuration Monitor with ID $($ConfigurationMonitorId):" -ForegroundColor Green
         Write-Host ($Global:configurationMonitor | ConvertTo-Json -Depth 10)
     }
+
     "AssignPermissions"{
         switch($Resource){
             "Entra" {
@@ -1366,6 +1394,7 @@ catch{
             }
         }
     }
+
     "ExportSnapshot"{
         Write-Host "Exporting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
         GetSnapshot | Out-Null
@@ -1376,6 +1405,56 @@ catch{
         else{
             Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeeded state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
         }
+    }
+
+    "ListMonitoringResults"{
+        Write-Host "Listing monitoring results..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitoringResults"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:monitoringResults = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        foreach($result in $Global:monitoringResults.value) {
+            Write-Host "Monitoring Result ID: $($result.id) MonitorId: $($result.monitorId) Status: $($result.runStatus) DriftsCount: $($result.driftsCount)" -ForegroundColor Green
+        }
+    }
+
+    "ListConfigurationDrifts"{
+        Write-Host "Listing configuration drifts..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationDrifts"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:configurationDrifts = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        foreach($drift in $Global:configurationDrifts.value) {
+            Write-Host "Configuration Drift ID: $($drift.id) MonitorID: $($drift.monitorId) Resource Type: $($drift.resourceType)" -ForegroundColor Green
+        }
+    }
+
+    "GetConfigurationDrift"{
+        Write-Host "Getting configuration drift with ID $($ConfigurationDriftId)..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationDrifts/$($ConfigurationDriftId)"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:configurationDrift = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        Write-Host "Configuration Drift with ID $($ConfigurationDriftId):" -ForegroundColor Green
+        Write-Host ($Global:configurationDrift | ConvertTo-Json -Depth 10)
     }
 }
 
