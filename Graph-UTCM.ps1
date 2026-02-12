@@ -22,38 +22,38 @@
     SOFTWARE
 #>
 
-# Version 20250530.1243
-
+# Version 20260211.1921
 param (
     [ValidateSet("Global", "USGovernmentL4", "USGovernmentL5", "ChinaCloud")]
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $false, HelpMessage="The AzureEnvironment parameter specifies the cloud environment to target. Valid values are Global, USGovernmentL4, USGovernmentL5 and ChinaCloud. Default value is Global.")]
     [string]$AzureEnvironment = "Global",
 
     [Parameter(Mandatory=$false, HelpMessage="The PermissionType parameter specifies whether the app registrations uses delegated or application permissions")] [ValidateSet('Application','Delegated')]
     [string]$PermissionType="Application",
     
-    [Parameter(Mandatory=$False,HelpMessage="The OAuthClientId parameter is the Azure Application Id that this script uses to obtain the OAuth token.  Must be registered in Azure AD.")] 
+    [Parameter(Mandatory=$False, HelpMessage="The OAuthClientId parameter is the Azure Application Id that this script uses to obtain the OAuth token.  Must be registered in Azure AD.")] 
     [string]$OAuthClientId="e4d1d469-f91b-4cb6-ae34-edc251b08c48",
     
-    [Parameter(Mandatory=$False,HelpMessage="The OAuthTenantId parameter is the tenant Id where the application is registered (Must be in the same tenant as mailbox being accessed).")] 
+    [Parameter(Mandatory=$False, HelpMessage="The OAuthTenantId parameter is the tenant Id where the application is registered (Must be in the same tenant as mailbox being accessed).")] 
     [string]$OAuthTenantId="0a692e5d-89d9-40dd-ab32-85f096562c25",
     
-    [Parameter(Mandatory=$False,HelpMessage="The OAuthRedirectUri parameter is the redirect Uri of the Azure registered application.")] 
+    [Parameter(Mandatory=$False, HelpMessage="The OAuthRedirectUri parameter is the redirect Uri of the Azure registered application.")] 
     [string]$OAuthRedirectUri = "http://localhost:8004",
     
-    [Parameter(Mandatory=$False,HelpMessage="The OAuthSecretKey parameter is the the secret for the registered application.")] 
+    [Parameter(Mandatory=$False, HelpMessage="The OAuthSecretKey parameter is the the secret for the registered application.")] 
     [SecureString]$OAuthClientSecret,
     
-    [Parameter(Mandatory=$False,HelpMessage="The OAuthCertificate parameter is the certificate for the registered application. Certificate auth requires MSAL libraries to be available.")] 
+    [Parameter(Mandatory=$False, HelpMessage="The OAuthCertificate parameter is the certificate for the registered application. Certificate auth requires MSAL libraries to be available.")] 
     [string]$OAuthCertificate="7765BEC834A02FB0DF8686D13186ABC8BE265917",
   
-    [Parameter(Mandatory=$False,HelpMessage="The CertificateStore parameter specifies the certificate store where the certificate is loaded.")] [ValidateSet("CurrentUser", "LocalMachine")]
+    [Parameter(Mandatory=$False, HelpMessage="The CertificateStore parameter specifies the certificate store where the certificate is loaded.")] [ValidateSet("CurrentUser", "LocalMachine")]
      [string] $CertificateStore = "CurrentUser",
 
-    [Parameter(Mandatory=$false)] [Array]$Scope= @("Mail.ReadWrite","Mail.Send"),
+    [Parameter(Mandatory=$false, HelpMessage="The Scope parameter specifies the OAuth scopes for the token request.")]
+    [object]$Scope= @("Mail.ReadWrite","Mail.Send"),
 
     [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","ExportSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors","AssignPermissions")]
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $true, HelpMessage="The Operation parameter specifies the operation to perform.")]
     [string]$Operation = "GetSnapshot",
 
     [Parameter(Mandatory = $false, HelpMessage="The SnapshotJobId parameter specifies the GUID of the snapshot job.")]
@@ -63,20 +63,17 @@ param (
     [System.Guid]$ConfigurationMonitorId,
 
     [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams")]
-    [Parameter(Mandatory = $false)]
+    [Parameter(Mandatory = $false, HelpMessage="The Resource parameter specifies the resource for which to create the configuration monitor. Valid values are Entra, Exchange, Intune, SecurityAndCompliance and Teams.")]
     [string]$Resource = "Exchange",
 
     [Parameter(Mandatory = $false, HelpMessage="The Name parameter specifies the name of the snapshot to create.")]
     [string]$Name,
 
-    [Parameter(Mandatory = $false, HelpMessage="The ResourceLocation parameter specifies the resource location of the configuration baseline.")]
-    [string]$ResourceLocation,
-
     [Parameter(Mandatory = $false, HelpMessage="The BaselineObject parameter specifies the baseline object.")]
     $BaselineObject,
 
     [ValidateScript({ Test-Path $_ })]
-    [Parameter(Mandatory = $true, HelpMessage="The OutputPath parameter specifies the path for the EWS usage report.")]
+    [Parameter(Mandatory = $false, HelpMessage="The OutputPath parameter specifies the path for the EWS usage report.")]
     [string] $OutputPath
 )
 function Get-CloudServiceEndpoint {
@@ -1124,6 +1121,19 @@ function GetSnapshot{
     }
     $Global:snapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
     return $Global:snapshot
+}
+
+if($Operation -eq "CreateSnapshot" -and [System.String]::IsNullOrWhiteSpace($Name)){
+    Write-Host "Please provide a name for the snapshot using the -Name parameter when creating a snapshot." -ForegroundColor Red
+    exit
+}
+if(($Operation -eq "GetSnapshot" -or $Operation -eq "DeleteSnapshot" -or $Operation -eq "ExportSnapshot") -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
+    Write-Host "Please provide a snapshot job ID using the -SnapshotJobId parameter when getting, deleting, or exporting a snapshot." -ForegroundColor Red
+    exit
+}
+if($Operation -eq "ExportSnapshot" -and [System.String]::IsNullOrWhiteSpace($OutputPath)){
+    Write-Host "Please provide an export path using the -OutputPath parameter when exporting a snapshot." -ForegroundColor Red
+    exit
 }
 
 $cloudService = Get-CloudServiceEndpoint $AzureEnvironment
