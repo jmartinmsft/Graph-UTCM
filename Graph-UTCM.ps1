@@ -1165,6 +1165,10 @@ switch($Resource) {
                 $resourceTypes.Add($u.Name) | Out-Null
             }
         }
+        $entraResourceTypes = $resourceTypes | Out-GridView -Title "Select Entra resource types to include in the snapshot" -PassThru
+        if ($null -ne $entraResourceTypes -and $entraResourceTypes.Count -gt 0) {
+            $resourceTypes = [System.Collections.ArrayList]@($entraResourceTypes)
+        }
     }
     "Exchange" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
@@ -1194,7 +1198,7 @@ switch($Resource) {
     "Teams" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
             if($u.Name -like "microsoft.teams*") {
-                $resourceTypes.Add(($u.Name -replace '^microsoft\.teams\.', '')) | Out-Null
+                $resourceTypes.Add($u.Name) | Out-Null
             }
         }
     }
