@@ -1123,7 +1123,7 @@ function GetSnapshot{
     return $Global:snapshot
 }
 
-if($Operation -eq "CreateSnapshot" -and [System.String]::IsNullOrWhiteSpace($Name)){
+if(($Operation -eq "CreateSnapshot" -or $Operation -eq "CreateConfigurationMonitor") -and [System.String]::IsNullOrWhiteSpace($Name)){
     Write-Host "Please provide a name for the snapshot using the -Name parameter when creating a snapshot." -ForegroundColor Red
     exit
 }
@@ -1233,6 +1233,7 @@ catch{
         Write-Host "Snapshot Job ID $($SnapshotJobId): " -NoNewline
         Write-Host $Global:snapshot.status -ForegroundColor Green    
     }
+
     "DeleteSnapshot" {
         Write-Host "Deleting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)"
@@ -1246,6 +1247,7 @@ catch{
         }
         $deleteSnapot = Invoke-GraphApiRequest @GraphParams
     }
+
     "ListSnapshots" {
         Write-Host "Listing snapshots..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationSnapshotJobs"
@@ -1262,6 +1264,7 @@ catch{
             Write-Host "Snapshot Job ID: $($snapshot.id) Display Name: $($snapshot.displayName) Status: $($snapshot.status)" -ForegroundColor Green
         }
     }
+
     "GetErrorDetails" {
         Write-Host "Getting error details for snapshot job with ID $($SnapshotJobId)..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)/?`select=errorDetails"
@@ -1277,6 +1280,7 @@ catch{
         Write-Host "Error details for snapshot job with ID $($SnapshotJobId):" -ForegroundColor Green
         Write-Host ($Global:errorDetails | ConvertTo-Json -Depth 10)
     }
+
     "CreateConfigurationMonitor" {
         Write-Host "Creating a new configuration monitor..." -ForegroundColor Green
         GetSnapshot | Out-Null
@@ -1288,10 +1292,10 @@ catch{
         }
         $Query = "admin/configurationManagement/configurationMonitors"
         $graphBody = (@{
-            "displayName" = "Connectors Demo Monitor"
+            "displayName" = $Name
             "description" = "Demo monitor for the outbound connector"
             "baseline" = (@{
-                "displayName" = "Connectors Demo Baseline"
+                "displayName" = "$($Name) Baseline"
                 "description" = "Demo baseline for the outbound connector"
                 "resources" = @(($BaselineObject.resources | Select-Object -Property displayName, resourceType, properties))
             })
@@ -1314,6 +1318,7 @@ catch{
             Write-VerboseErrorInformation
          }
     }
+
     "ListConfigurationMonitors"{
         Write-Host "Listing configuration monitors..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationMonitors"
