@@ -70,6 +70,7 @@ param (
     [string]$Resource = "Exchange",
 
     [Parameter(Mandatory = $false, HelpMessage="The Name parameter specifies the name of the snapshot to create.")]
+    [ValidateLength(8, 32)]
     [string]$Name,
 
     [ValidateScript({ Test-Path $_ })]
@@ -1161,7 +1162,7 @@ switch($Resource) {
     "Entra" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
             if($u.Name -like "microsoft.entra*") {
-                $resourceTypes.Add(($u.Name -replace '^microsoft\.entra\.', '')) | Out-Null
+                $resourceTypes.Add($u.Name) | Out-Null
             }
         }
     }
@@ -1179,14 +1180,14 @@ switch($Resource) {
     "Intune" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
             if($u.Name -like "microsoft.intune*") {
-                $resourceTypes.Add(($u.Name -replace '^microsoft\.intune\.', '')) | Out-Null
+                $resourceTypes.Add($u.Name) | Out-Null
             }
         }
     }
     "SecurityAndCompliance" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
             if($u.Name -like "microsoft.securityandcompliance*") {
-                $resourceTypes.Add(($u.Name -replace '^microsoft\.securityandcompliance\.', '')) | Out-Null
+                $resourceTypes.Add($u.Name) | Out-Null
             }
         }
     }
