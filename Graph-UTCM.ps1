@@ -1187,6 +1187,10 @@ switch($Resource) {
                 $resourceTypes.Add($u.Name) | Out-Null
             }
         }
+        $intuneResourceTypes = $resourceTypes | Out-GridView -Title "Select Intune resource types to include in the snapshot" -PassThru
+        if ($null -ne $intuneResourceTypes -and $intuneResourceTypes.Count -gt 0) {
+            $resourceTypes = [System.Collections.ArrayList]@($intuneResourceTypes)
+        }
     }
     "SecurityAndCompliance" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
@@ -1194,12 +1198,20 @@ switch($Resource) {
                 $resourceTypes.Add($u.Name) | Out-Null
             }
         }
+        $secComplianceResourceTypes = $resourceTypes | Out-GridView -Title "Select Security and Compliance resource types to include in the snapshot" -PassThru
+        if ($null -ne $secComplianceResourceTypes -and $secComplianceResourceTypes.Count -gt 0) {
+            $resourceTypes = [System.Collections.ArrayList]@($secComplianceResourceTypes)
+        }
     }
     "Teams" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
             if($u.Name -like "microsoft.teams*") {
                 $resourceTypes.Add($u.Name) | Out-Null
             }
+        }
+        $teamsResourceTypes = $resourceTypes | Out-GridView -Title "Select Teams resource types to include in the snapshot" -PassThru
+        if ($null -ne $teamsResourceTypes -and $teamsResourceTypes.Count -gt 0) {
+            $resourceTypes = [System.Collections.ArrayList]@($teamsResourceTypes)
         }
     }
 }
@@ -1222,7 +1234,6 @@ $GraphParams = @{
             Endpoint            = "beta"
         }
 
-#$SearchResults = New-Object System.Collections.ArrayList
 try{
     $Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
     Write-Host "Snapshot Job ID $($Global:configurationSnapshot.Content.id) created" -ForegroundColor Green
