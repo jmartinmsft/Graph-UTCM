@@ -44,6 +44,8 @@ Check the status of the snapshot:
 
 **ConfigurationMonitorId** - The ConfigurationMonitorId parameter specifies the GUID of the configuration monitor.
 
+**ConfigurationDriftId** - The ConfigurationDriftId parameter specifies the GUID of the configuration drift.
+    
 **Resource** - The Resource parameter specifies the workload configuration within the organization being managed.
 
 **Name** - The Name parameter specifies the name of the snapshot to create.
