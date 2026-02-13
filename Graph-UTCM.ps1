@@ -22,7 +22,7 @@
     SOFTWARE
 #>
 
-# Version 20260211.1957
+# Version 20260212.1932
 param (
     [ValidateSet("Global", "USGovernmentL4", "USGovernmentL5", "ChinaCloud")]
     [Parameter(Mandatory = $false, HelpMessage="The AzureEnvironment parameter specifies the cloud environment to target. Valid values are Global, USGovernmentL4, USGovernmentL5 and ChinaCloud. Default value is Global.")]
@@ -52,22 +52,31 @@ param (
     [Parameter(Mandatory=$false, HelpMessage="The Scope parameter specifies the OAuth scopes for the token request.")]
     [object]$Scope= @("Mail.ReadWrite","Mail.Send"),
 
-    [ValidateSet("CreateSnapshot", "GetSnapshot","DeleteSnapshot","ListSnapshots","GetErrorDetails","ExportSnapshot","CreateConfigurationMonitor","GetConfigurationMonitor","ListConfigurationMonitors","AssignPermissions","ListMonitoringResults","ListConfigurationDrifts","GetConfigurationDrift")]
-    [Parameter(Mandatory = $true, HelpMessage="The Operation parameter specifies the operation to perform.")]
-    [string]$Operation = "GetSnapshot",
+    [ValidateSet("Snapshot", "Monitor", "MonitoringResult", "Drift")]
+    [Parameter(Mandatory = $true, HelpMessage="The Resource parameter specifies the REST resource.")]
+    [string]$Resource = "Snapshot",
+
+    [ValidateSet("Create", "Get","Delete","List","Error","Export")]
+    [Parameter(Mandatory = $true, HelpMessage="The Operation parameter specifies the operation to perform for the resource.")]
+    [string]$Operation = "Get",
+
+    [switch]$AssignPermissions,
 
     [Parameter(Mandatory = $false, HelpMessage="The SnapshotJobId parameter specifies the GUID of the snapshot job.")]
     [System.Guid]$SnapshotJobId,
 
-    [Parameter(Mandatory = $false, HelpMessage="The ConfigurationMonitorId parameter specifies the GUID of the configuration monitor.")]
-    [System.Guid]$ConfigurationMonitorId,
+    [Parameter(Mandatory = $false, HelpMessage="The MonitorId parameter specifies the GUID of the configuration monitor.")]
+    [System.Guid]$MonitorId,
 
-    [Parameter(Mandatory = $false, HelpMessage="The ConfigurationDriftId parameter specifies the GUID of the configuration drift.")]
-    [System.Guid]$ConfigurationDriftId,
+    [Parameter(Mandatory = $false, HelpMessage="The MonitoringResultId parameter specifies the GUID of the monitoring result.")]
+    [System.Guid]$MonitoringResultId,
+
+    [Parameter(Mandatory = $false, HelpMessage="The DriftId parameter specifies the GUID of the configuration drift.")]
+    [System.Guid]$DriftId,
 
     [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams")]
     [Parameter(Mandatory = $false, HelpMessage="The Resource parameter specifies the resource for which to create the configuration monitor. Valid values are Entra, Exchange, Intune, SecurityAndCompliance and Teams.")]
-    [string]$Resource = "Exchange",
+    [string]$Workload = "Exchange",
 
     [Parameter(Mandatory = $false, HelpMessage="The Name parameter specifies the name of the snapshot to create.")]
     [ValidateLength(8, 32)]
@@ -1124,21 +1133,81 @@ function GetSnapshot{
     return $Global:snapshot
 }
 
-if(($Operation -eq "CreateSnapshot" -or $Operation -eq "CreateConfigurationMonitor") -and [System.String]::IsNullOrWhiteSpace($Name)){
-    Write-Host "Please provide a name for the snapshot using the -Name parameter when creating a snapshot." -ForegroundColor Red
+if($AssignPermissions){
+    switch($Workload){
+            "Entra" {
+                $entraRoles = @('Security Reader', 'Global Reader')
+                $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $entraPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                Write-Host "Adding Entra roles to the application is not implemented in this script yet" -ForegroundColor Green
+                AssignAppRoles -Roles $entraRoles -GraphServicePrincipal $GraphServicePrincipal
+            }
+            "Exchange" {
+                $exchangeRoles = @('Security Reader', 'Global Reader')
+                Write-Host "Assigning permissions for Exchange resources is not implemented in this script yet" -ForegroundColor Green
+                $exchangePermissions = @('Exchange.ManageAsApp')
+                $ExchangeServicePrincipal = GetExchangeServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $exchangePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $exchangeRoles -GraphServicePrincipal $GraphServicePrincipal
+            }
+            "Intune" {
+                Write-Host "Assigning permissions for Intune resources is not implemented in this script yet" -ForegroundColor Green
+                $intunePermissions = @('Group.Read.All','DeviceManagementConfiguration.Read.All','DeviceManagementApps.Read.All','DeviceManagementRBAC.Read.All')
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $intunePermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+            }
+            "Teams"{
+                $teamsRoles = @('Global Reader')
+                Write-Host "Assigning permissions for Teams resources is not implemented in this script yet" -ForegroundColor Green
+                $teamsPermissions = @('Organizatino.Read.All','Team.ReadBasic.All')
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $teamsPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $teamsRoles -GraphServicePrincipal $GraphServicePrincipal
+            }
+            "SecurityAndCompliance"{
+                Write-Host "Assigning permissions for Security and Compliance resources is not implemented in this script yet" -ForegroundColor Green
+                $secComplianceRoles = @('Security Reader','Compliance Administrator')
+                $secCompliancePermissions = @('Exchange.ManageAsApp')
+                $ExchangeServicePrincipal = GetExchangeServicePrincipal
+                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                AssignAppPermissions -Permissions $secCompliancePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $secComplianceRoles -GraphServicePrincipal $GraphServicePrincipal
+            }
+    }
+}
+
+if($Operation -eq "Delete" -and ($Resource -eq "Drift" -or $Resource -eq "MonitoringResult")){
+    Write-Host "Delete operation is not supported for $Resource resource. " -ForegroundColor Red
     exit
 }
-if(($Operation -eq "GetSnapshot" -or $Operation -eq "DeleteSnapshot" -or $Operation -eq "ExportSnapshot" -or $Operation -eq "CreateConfigurationMonitor") -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
-    Write-Host "Please provide a snapshot job ID using the -SnapshotJobId parameter when getting, deleting, or exporting a snapshot." -ForegroundColor Red
-    exit
-}
-if($Operation -eq "ExportSnapshot" -and [System.String]::IsNullOrWhiteSpace($OutputPath)){
-    Write-Host "Please provide an export path using the -OutputPath parameter when exporting a snapshot." -ForegroundColor Red
+if($Operation -eq "Export" -and $Resource -ne "Snapshot"){
+    Write-Host "Export operation is only supported for Snapshot resource. " -ForegroundColor Red
     exit
 }
 
-if($Operation -eq "GetConfigurationDrift" -and [System.String]::IsNullOrWhiteSpace($ConfigurationDriftId)){
-    Write-Host "Please provide a configuration drift ID using the -ConfigurationDriftId parameter when getting configuration drift." -ForegroundColor Red
+if(($Operation -eq "Create") -and [System.String]::IsNullOrWhiteSpace($Name)){
+    Write-Host "Please provide a name for the resource using the -Name parameter when creating a resource." -ForegroundColor Red
+    exit
+}
+if((($Operation -eq "Get" -or $Operation -eq "Delete" -or $Operation -eq "Export" -and $Resource -eq "Snapshot")) -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
+    Write-Host "Please provide a snapshot job ID using the -SnapshotJobId parameter when getting, deleting, or exporting a snapshot or monitor." -ForegroundColor Red
+    exit
+}
+if($Operation -eq "Export" -and [System.String]::IsNullOrWhiteSpace($OutputPath)){
+    Write-Host "Please provide an export path using the -OutputPath parameter when exporting a snapshot." -ForegroundColor Red
+    exit
+}
+if((($Operation -eq "Get" -or $Operation -eq "Delete") -and $Resource -eq "Monitor") -and [System.String]::IsNullOrWhiteSpace($MonitorId)){
+    Write-Host "Please provide a configuration monitor ID using the -MonitorId parameter when getting configuration monitor." -ForegroundColor Red
+    exit
+}
+if(($Operation -eq "Get" -and $Resource -eq "Drift") -and [System.String]::IsNullOrWhiteSpace($DriftId)){
+    Write-Host "Please provide a configuration drift ID using the -DriftId parameter when getting configuration drift." -ForegroundColor Red
     exit
 }
 
@@ -1151,14 +1220,16 @@ $Script:applicationInfo = @{
 
 Get-OAuthToken
 
-switch($Operation){
+$Action = "$Operation$Resource"
+
+switch($Action){
     "CreateSnapshot" {
         $Query = "admin/configurationManagement/configurationSnapshots/createSnapshot"
         #$utcmMonitor = (Invoke-WebRequest -Uri https://www.schemastore.org/utcm-monitor.json -UseBasicParsing) | ConvertFrom-Json
         #$utcmMonitor | ConvertTo-Json -Depth 100 | Out-File -FilePath ".\utcm-monitor.json" -Encoding UTF8
         $utcmMonitor = (Get-Content .\utcm-monitor.json -Raw | ConvertFrom-Json)
         $resourceTypes = New-Object System.Collections.ArrayList
-switch($Resource) {
+        switch($Workload) {
     "Entra" {
         foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
             if($u.Name -like "microsoft.entra*") {
@@ -1214,17 +1285,16 @@ switch($Resource) {
             $resourceTypes = [System.Collections.ArrayList]@($teamsResourceTypes)
         }
     }
-}
-
-        Write-Host "Creating a new snapshot for $($Resource) resources..." -ForegroundColor Green
+        }
+        Write-Host "Creating a new snapshot for $($Workload) resources..." -ForegroundColor Green
         $graphBody = (@{
-    #"displayName" = "$($Resource) Snapshot"
-    "displayName" = $Name
-    "description" = "This snapshot was created by the UTCM Graph API test script for all $($Resource) resources"
-    "resources" = @($resourceTypes)
-    })
+        #"displayName" = "$($Workload) Snapshot"
+        "displayName" = $Name
+        "description" = "This snapshot was created by the UTCM Graph API test script for all $($Workload) resources"
+        "resources" = @($resourceTypes)
+        })
 
-$GraphParams = @{
+        $GraphParams = @{
             AccessToken         = $Script:Token
             GraphApiUrl         = $cloudService.graphApiEndpoint
             Body                = ($graphBody | ConvertTo-Json -Depth 6)
@@ -1234,20 +1304,22 @@ $GraphParams = @{
             Endpoint            = "beta"
         }
 
-try{
-    $Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
-    Write-Host "Snapshot Job ID $($Global:configurationSnapshot.Content.id) created" -ForegroundColor Green
-}
-catch{
-    Write-Host "Failed to create snapshot job for $($Resource) resources" -ForegroundColor Red
-    Write-VerboseErrorInformation
-}
+        try{
+            $Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
+            Write-Host "Snapshot Job ID $($Global:configurationSnapshot.Content.id) created" -ForegroundColor Green
+        }
+        catch{
+            Write-Host "Failed to create snapshot job for $($Workload) resources" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
     }
+
     "GetSnapshot" {
         Write-Host "Getting the latest snapshot for $($SnapshotJobId) resources..." -ForegroundColor Green
         GetSnapshot | Out-Null
-        Write-Host "Snapshot Job ID $($SnapshotJobId): " -NoNewline
-        Write-Host $Global:snapshot.status -ForegroundColor Green    
+        #Write-Host "Snapshot Job ID $($SnapshotJobId): " -NoNewline
+        #Write-Host $Global:snapshot.status -ForegroundColor Green
+        $snapshot
     }
 
     "DeleteSnapshot" {
@@ -1264,7 +1336,7 @@ catch{
         $deleteSnapot = Invoke-GraphApiRequest @GraphParams
     }
 
-    "ListSnapshots" {
+    "ListSnapshot" {
         Write-Host "Listing snapshots..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationSnapshotJobs"
         $GraphParams = @{
@@ -1281,7 +1353,7 @@ catch{
         }
     }
 
-    "GetErrorDetails" {
+    "ErrorSnapshot" {
         Write-Host "Getting error details for snapshot job with ID $($SnapshotJobId)..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)/?`select=errorDetails"
         $GraphParams = @{
@@ -1297,7 +1369,7 @@ catch{
         Write-Host ($Global:errorDetails | ConvertTo-Json -Depth 10)
     }
 
-    "CreateConfigurationMonitor" {
+    "CreateMonitor" {
         Write-Host "Creating a new configuration monitor..." -ForegroundColor Green
         GetSnapshot | Out-Null
         if($Global:snapshot.status -eq "succeeded"){
@@ -1330,12 +1402,12 @@ catch{
             Write-Host "Configuration Monitor ID $($Global:configurationMonitor.Content.id) created" -ForegroundColor Green
         }
         catch{
-            Write-Host "Failed to create configuration monitor for $($Resource) resources" -ForegroundColor Red
+            Write-Host "Failed to create configuration monitor for $($Workload) resources" -ForegroundColor Red
             Write-VerboseErrorInformation
          }
     }
 
-    "ListConfigurationMonitors"{
+    "ListMonitor"{
         Write-Host "Listing configuration monitors..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationMonitors"
         $GraphParams = @{
@@ -1352,9 +1424,9 @@ catch{
         }
     }
 
-    "GetConfigurationMonitor"{
-        Write-Host "Getting configuration monitor with ID $($ConfigurationMonitorId)..." -ForegroundColor Green
-        $Query = "admin/configurationManagement/configurationMonitors/$($ConfigurationMonitorId)"
+    "GetMonitor"{
+        Write-Host "Getting configuration monitor with ID $($MonitorId)..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitors/$($MonitorId)"
         $GraphParams = @{
             AccessToken         = $Script:Token
             GraphApiUrl         = $cloudService.graphApiEndpoint
@@ -1364,56 +1436,23 @@ catch{
             Endpoint            = "beta"
         }
         $Global:configurationMonitor = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        Write-Host "Configuration Monitor with ID $($ConfigurationMonitorId):" -ForegroundColor Green
-        Write-Host ($Global:configurationMonitor | ConvertTo-Json -Depth 10)
+        #Write-Host "Configuration Monitor with ID $($MonitorId):" -ForegroundColor Green
+        #Write-Host ($Global:configurationMonitor | ConvertTo-Json -Depth 10)
+        $configurationMonitor
     }
 
-    "AssignPermissions"{
-        switch($Resource){
-            "Entra" {
-                $entraRoles = @('Security Reader', 'Global Reader')
-                $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
-                $GraphServicePrincipal = GetGraphServicePrincipal
-                $UTCMServicePrincipal = GetUTCMServicePrincipal
-                AssignAppPermissions -Permissions $entraPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                Write-Host "Adding Entra roles to the application is not implemented in this script yet" -ForegroundColor Green
-                AssignAppRoles -Roles $entraRoles -GraphServicePrincipal $GraphServicePrincipal
-            }
-            "Exchange" {
-                $exchangeRoles = @('Security Reader', 'Global Reader')
-                Write-Host "Assigning permissions for Exchange resources is not implemented in this script yet" -ForegroundColor Green
-                $exchangePermissions = @('Exchange.ManageAsApp')
-                $ExchangeServicePrincipal = GetExchangeServicePrincipal
-                $UTCMServicePrincipal = GetUTCMServicePrincipal
-                AssignAppPermissions -Permissions $exchangePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                AssignAppRoles -Roles $exchangeRoles -GraphServicePrincipal $GraphServicePrincipal
-            }
-            "Intune" {
-                Write-Host "Assigning permissions for Intune resources is not implemented in this script yet" -ForegroundColor Green
-                $intunePermissions = @('Group.Read.All','DeviceManagementConfiguration.Read.All','DeviceManagementApps.Read.All')
-                $GraphServicePrincipal = GetGraphServicePrincipal
-                $UTCMServicePrincipal = GetUTCMServicePrincipal
-                AssignAppPermissions -Permissions $intunePermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-            }
-            "Teams"{
-                $teamsRoles = @('Global Reader')
-                Write-Host "Assigning permissions for Teams resources is not implemented in this script yet" -ForegroundColor Green
-                $teamsPermissions = @('Organizatino.Read.All','Team.ReadBasic.All')
-                $GraphServicePrincipal = GetGraphServicePrincipal
-                $UTCMServicePrincipal = GetUTCMServicePrincipal
-                AssignAppPermissions -Permissions $teamsPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                AssignAppRoles -Roles $teamsRoles -GraphServicePrincipal $GraphServicePrincipal
-            }
-            "SecurityAndCompliance"{
-                Write-Host "Assigning permissions for Security and Compliance resources is not implemented in this script yet" -ForegroundColor Green
-                $secComplianceRoles = @('Security Reader','Compliance Administrator')
-                $secCompliancePermissions = @('Exchange.ManageAsApp')
-                $ExchangeServicePrincipal = GetExchangeServicePrincipal
-                $UTCMServicePrincipal = GetUTCMServicePrincipal
-                AssignAppPermissions -Permissions $secCompliancePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                AssignAppRoles -Roles $secComplianceRoles -GraphServicePrincipal $GraphServicePrincipal
-            }
+    "DeleteMonitor"{
+        Write-Host "Deleting configuration monitor with ID $($MonitorId)..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitors/$($MonitorId)"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "DELETE"
+            ExpectedStatusCode = "204"
+            Endpoint            = "beta"
         }
+        $deleteMonitor = Invoke-GraphApiRequest @GraphParams
     }
 
     "ExportSnapshot"{
@@ -1428,7 +1467,7 @@ catch{
         }
     }
 
-    "ListMonitoringResults"{
+    "ListMonitoringResult"{
         Write-Host "Listing monitoring results..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationMonitoringResults"
         $GraphParams = @{
@@ -1441,11 +1480,29 @@ catch{
         }
         $Global:monitoringResults = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
         foreach($result in $Global:monitoringResults.value) {
-            Write-Host "Monitoring Result ID: $($result.id) MonitorId: $($result.monitorId) Status: $($result.runStatus) DriftsCount: $($result.driftsCount)" -ForegroundColor Green
+            #Write-Host "Monitoring Result ID: $($result.id) MonitorId: $($result.monitorId) Status: $($result.runStatus) DriftsCount: $($result.driftsCount)" -ForegroundColor Green
+            $result
         }
     }
 
-    "ListConfigurationDrifts"{
+    "GetMonitoringResult"{
+        Write-Host "Getting monitoring result with ID $($MonitoringResultId)..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationMonitoringResults/$($MonitoringResultId)"
+        $GraphParams = @{
+            AccessToken         = $Script:Token
+            GraphApiUrl         = $cloudService.graphApiEndpoint
+            Query               = $Query
+            Method              = "GET"
+            ExpectedStatusCode = "200"
+            Endpoint            = "beta"
+        }
+        $Global:monitoringResult = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        #Write-Host "Monitoring Result with ID $($MonitoringResultId):" -ForegroundColor Green
+        #Write-Host ($Global:monitoringResult | ConvertTo-Json -Depth 10)
+        $monitoringResult
+    }
+
+    "ListDrift"{
         Write-Host "Listing configuration drifts..." -ForegroundColor Green
         $Query = "admin/configurationManagement/configurationDrifts"
         $GraphParams = @{
@@ -1462,9 +1519,9 @@ catch{
         }
     }
 
-    "GetConfigurationDrift"{
-        Write-Host "Getting configuration drift with ID $($ConfigurationDriftId)..." -ForegroundColor Green
-        $Query = "admin/configurationManagement/configurationDrifts/$($ConfigurationDriftId)"
+    "GetDrift"{
+        Write-Host "Getting configuration drift with ID $($DriftId)..." -ForegroundColor Green
+        $Query = "admin/configurationManagement/configurationDrifts/$($DriftId)"
         $GraphParams = @{
             AccessToken         = $Script:Token
             GraphApiUrl         = $cloudService.graphApiEndpoint
@@ -1474,7 +1531,7 @@ catch{
             Endpoint            = "beta"
         }
         $Global:configurationDrift = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        Write-Host "Configuration Drift with ID $($ConfigurationDriftId):" -ForegroundColor Green
+        Write-Host "Configuration Drift with ID $($DriftId):" -ForegroundColor Green
         Write-Host ($Global:configurationDrift | ConvertTo-Json -Depth 10)
     }
 }
