@@ -1013,7 +1013,7 @@ function GetUTCMServicePrincipal{
 }
 
 function GetExchangeServicePrincipal{
-    $Query = "servicePrincipals(appId='00000002-0000-0000-c000-000000000000')"
+    $Query = "servicePrincipals(appId='00000002-0000-0ff1-ce00-000000000000')"
     $GraphParams = @{
         AccessToken         = $Script:Token
         GraphApiUrl         = $cloudService.graphApiEndpoint
@@ -1034,6 +1034,8 @@ function AssignAppPermissions{
     )
     foreach($permission in $Permissions) {
         Write-Host "Assigning $permission permission to the application for the resources..." -ForegroundColor Green
+        Write-Verbose $ResourcePrincipal.id
+        Write-Verbose ($($ResourcePrincipal.appRoles) | Where-Object { $_.value -eq $permission }).id
         $GraphParams = @{
             AccessToken         = $Script:Token
             GraphApiUrl         = $cloudService.graphApiEndpoint
@@ -1062,7 +1064,7 @@ function AssignAppRoles{
     #GET https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions?$filter=displayName eq 'Global Reader'&$select=id,displayName
     param(
         [object]$Roles,
-        $GraphServicePrincipal
+        $UTCMServicePrincipal
     )
     foreach($role in $Roles){
         $Query = "roleManagement/directory/roleDefinitions?`$filter=displayName eq '$($role)'"
@@ -1085,7 +1087,7 @@ function AssignAppRoles{
             Endpoint            = "v1.0"
             Body                = (@{
                 "@odata.type" = "#microsoft.graph.unifiedRoleAssignment"
-                "principalId" = $GraphServicePrincipal.id
+                "principalId" = $UTCMServicePrincipal.id
                 "roleDefinitionId" = $RoleDefinition.value.id
                 "directoryScopeId" = "/"
             } | ConvertTo-Json)
@@ -1143,15 +1145,39 @@ $Script:applicationInfo = @{
 Get-OAuthToken
 
 if($AssignPermissions){
+    #New-MgServicePrincipal -AppId '03b07b79-c5bc-4b5e-9bfa-13acf4a99998'
+    if([string]::IsNullOrEmpty((GetUTCMServicePrincipal).id)){
+         $Query = "servicePrincipals"
+        $graphParams = @{
+        AccessToken         = $Script:Token
+        GraphApiUrl         = $cloudService.graphApiEndpoint
+        Query               = $Query
+        Method              = "POST"
+        ExpectedStatusCode = "201"
+        Endpoint            = "v1.0"
+        Body                = (@{
+            "appId" = "03b07b79-c5bc-4b5e-9bfa-13acf4a99998"
+        } | ConvertTo-Json)
+        }
+        $newServicePrincipal = Invoke-GraphApiRequest @graphParams
+        Write-Host ($newServicePrincipal.Response.Content) | ConvertFrom-Json
+        Write-Host "Waiting for 10 seconds to ensure the service principal is created before assigning permissions..." -ForegroundColor Green
+        Start-Sleep -Seconds 10
+    }
     switch($Workload){
             "Entra" {
                 $entraRoles = @('Security Reader', 'Global Reader')
                 $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
                 $GraphServicePrincipal = GetGraphServicePrincipal
-                $UTCMServicePrincipal = GetUTCMServicePrincipal
+                if([string]::IsNullOrEmpty($newServicePrincipal.Id)){
+                    $UTCMServicePrincipal = GetUTCMServicePrincipal
+                }
+                else{
+                    $UTCMServicePrincipal = $newServicePrincipal.Response.Content | ConvertFrom-Json
+                }
                 AssignAppPermissions -Permissions $entraPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
                 Write-Host "Adding Entra roles to the application is not implemented in this script yet" -ForegroundColor Green
-                AssignAppRoles -Roles $entraRoles -GraphServicePrincipal $GraphServicePrincipal
+                AssignAppRoles -Roles $entraRoles -UTCMServicePrincipal $UTCMServicePrincipal
             }
             "Exchange" {
                 $exchangeRoles = @('Security Reader', 'Global Reader')
@@ -1160,7 +1186,7 @@ if($AssignPermissions){
                 $ExchangeServicePrincipal = GetExchangeServicePrincipal
                 $UTCMServicePrincipal = GetUTCMServicePrincipal
                 AssignAppPermissions -Permissions $exchangePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                AssignAppRoles -Roles $exchangeRoles -GraphServicePrincipal $GraphServicePrincipal
+                AssignAppRoles -Roles $exchangeRoles -UTCMServicePrincipal $UTCMServicePrincipal
             }
             "Intune" {
                 Write-Host "Assigning permissions for Intune resources is not implemented in this script yet" -ForegroundColor Green
@@ -1176,7 +1202,7 @@ if($AssignPermissions){
                 $GraphServicePrincipal = GetGraphServicePrincipal
                 $UTCMServicePrincipal = GetUTCMServicePrincipal
                 AssignAppPermissions -Permissions $teamsPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                AssignAppRoles -Roles $teamsRoles -GraphServicePrincipal $GraphServicePrincipal
+                AssignAppRoles -Roles $teamsRoles -UTCMServicePrincipal $UTCMServicePrincipal
             }
             "SecurityAndCompliance"{
                 Write-Host "Assigning permissions for Security and Compliance resources is not implemented in this script yet" -ForegroundColor Green
@@ -1185,7 +1211,7 @@ if($AssignPermissions){
                 $ExchangeServicePrincipal = GetExchangeServicePrincipal
                 $UTCMServicePrincipal = GetUTCMServicePrincipal
                 AssignAppPermissions -Permissions $secCompliancePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
-                AssignAppRoles -Roles $secComplianceRoles -GraphServicePrincipal $GraphServicePrincipal
+                AssignAppRoles -Roles $secComplianceRoles -UTCMServicePrincipal $UTCMServicePrincipal
             }
     }
     exit
