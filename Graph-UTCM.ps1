@@ -1178,7 +1178,7 @@ if($AssignPermissions){
                 $entraRoles = @('Security Reader', 'Global Reader')
                 $entraPermissions = @('AdministrativeUnit.Read.All','RoleManagement.Read.Directory','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
                 $GraphServicePrincipal = GetGraphServicePrincipal
-                #AssignAppPermissions -Permissions $entraPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppPermissions -Permissions $entraPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
                 Write-Host "Adding Entra roles to the application is not implemented in this script yet" -ForegroundColor Green
                 AssignAppRoles -Roles $entraRoles -UTCMServicePrincipal $UTCMServicePrincipal
             }
