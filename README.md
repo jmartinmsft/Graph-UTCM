@@ -12,23 +12,23 @@ This PowerShell script can be used to create a snapshot of a tenant for baseline
 ## Usage
 Create a snapshot for the Exchange configuration in the tenant:
 ```powershell
-.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation CreateSnapshot -Resource Exchange
+.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation Create -Resource Snapshot -Workload Exchange -Name ExchangeTest
 ```
 Check the status of the snapshot:
 ```powershell
-.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation GetSnapshot -SnapshotJobId d8982fef-3331-497f-8b8b-47a119a2285e
+.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation Get -Resource Snapshot -SnapshotJobId d8982fef-3331-497f-8b8b-47a119a2285e
 ```
 Create a configuration monitor
 ```powershell
-.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation CreateConfigurationMonitor -SnapshotJobId d8982fef-3331-497f-8b8b-47a119a2285e
+.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation Create -Resource Monitor -SnapshotJobId d8982fef-3331-497f-8b8b-47a119a2285e
 ```
 Check for configuration drifts
 ```powershell
-.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation ListMonitoringResults
+.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation List -Resource MonitoringResult
 ```
 Get the configuration drifts
 ```powershell
-.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation GetConfigurationDrift -ConfigurationDriftId 660819fc-1c38-459b-bb8f-47019ec5068f
+.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation Get -Resource Drift -DriftId 660819fc-1c38-459b-bb8f-47019ec5068f
 ```
 
 ## Parameters
@@ -51,18 +51,22 @@ Get the configuration drifts
 
 **Scope** - The Scope parameter specifies the permissions requested for delegated authentication.
 
+**Resource** - The Resource parameter specifies the REST resource.
+
 **Operation** - The Operation parameter specifies the operation being performed by the script.
+
+**AssignPermission** - The AssignPermission switch specifies permissions should be assigned to UTCM enterprise app.
 
 **SnapshotJobId** - The SnapshotJobId parameter specifies the Id the for the snapshot being queried.
 
-**ConfigurationMonitorId** - The ConfigurationMonitorId parameter specifies the GUID of the configuration monitor.
+**MonitorId** - The MonitorId parameter specifies the GUID of the configuration monitor.
 
-**ConfigurationDriftId** - The ConfigurationDriftId parameter specifies the GUID of the configuration drift.
+**MonitoringResultId** - The MonitoringResultId parameter specifies the GUID of the monitoring result.
+
+**DriftId** - The DriftId parameter specifies the GUID of the configuration drift.
     
-**Resource** - The Resource parameter specifies the workload configuration within the organization being managed.
+**Workload** - The Workload parameter specifies the workload configuration within the organization being managed.
 
 **Name** - The Name parameter specifies the name of the snapshot to create.
-
-**BaselineObject** - The BaselineObject parameter specifies the baseline object used to create the monitor.
 
 **OutputPath** - The OutputPath parameter specifies the path for the configuration snapshot export.
