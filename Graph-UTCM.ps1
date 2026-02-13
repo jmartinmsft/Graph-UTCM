@@ -22,7 +22,7 @@
     SOFTWARE
 #>
 
-# Version 20260212.1932
+# Version 20260212.1955
 param (
     [ValidateSet("Global", "USGovernmentL4", "USGovernmentL5", "ChinaCloud")]
     [Parameter(Mandatory = $false, HelpMessage="The AzureEnvironment parameter specifies the cloud environment to target. Valid values are Global, USGovernmentL4, USGovernmentL5 and ChinaCloud. Default value is Global.")]
@@ -50,14 +50,14 @@ param (
      [string] $CertificateStore = "CurrentUser",
 
     [Parameter(Mandatory=$false, HelpMessage="The Scope parameter specifies the OAuth scopes for the token request.")]
-    [object]$Scope= @("Mail.ReadWrite","Mail.Send"),
+    [object]$Scope= @("ConfigurationMonitoring.ReadWrite.All"),
 
     [ValidateSet("Snapshot", "Monitor", "MonitoringResult", "Drift")]
-    [Parameter(Mandatory = $true, HelpMessage="The Resource parameter specifies the REST resource.")]
+    [Parameter(Mandatory = $false, HelpMessage="The Resource parameter specifies the REST resource.")]
     [string]$Resource = "Snapshot",
 
     [ValidateSet("Create", "Get","Delete","List","Error","Export")]
-    [Parameter(Mandatory = $true, HelpMessage="The Operation parameter specifies the operation to perform for the resource.")]
+    [Parameter(Mandatory = $false, HelpMessage="The Operation parameter specifies the operation to perform for the resource.")]
     [string]$Operation = "Get",
 
     [switch]$AssignPermissions,
@@ -1133,6 +1133,15 @@ function GetSnapshot{
     return $Global:snapshot
 }
 
+$cloudService = Get-CloudServiceEndpoint $AzureEnvironment
+$azureADEndpoint = $cloudService.AzureADEndpoint
+$Script:applicationInfo = @{
+    "TenantID" = $OAuthTenantId
+    "ClientID" = $OAuthClientId
+}
+
+Get-OAuthToken
+
 if($AssignPermissions){
     switch($Workload){
             "Entra" {
@@ -1179,6 +1188,7 @@ if($AssignPermissions){
                 AssignAppRoles -Roles $secComplianceRoles -GraphServicePrincipal $GraphServicePrincipal
             }
     }
+    exit
 }
 
 if($Operation -eq "Delete" -and ($Resource -eq "Drift" -or $Resource -eq "MonitoringResult")){
@@ -1194,7 +1204,7 @@ if(($Operation -eq "Create") -and [System.String]::IsNullOrWhiteSpace($Name)){
     Write-Host "Please provide a name for the resource using the -Name parameter when creating a resource." -ForegroundColor Red
     exit
 }
-if((($Operation -eq "Get" -or $Operation -eq "Delete" -or $Operation -eq "Export" -and $Resource -eq "Snapshot")) -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
+if(((($Operation -eq "Get" -or $Operation -eq "Delete" -or $Operation -eq "Export") -and $Resource -eq "Snapshot")) -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
     Write-Host "Please provide a snapshot job ID using the -SnapshotJobId parameter when getting, deleting, or exporting a snapshot or monitor." -ForegroundColor Red
     exit
 }
@@ -1210,15 +1220,6 @@ if(($Operation -eq "Get" -and $Resource -eq "Drift") -and [System.String]::IsNul
     Write-Host "Please provide a configuration drift ID using the -DriftId parameter when getting configuration drift." -ForegroundColor Red
     exit
 }
-
-$cloudService = Get-CloudServiceEndpoint $AzureEnvironment
-$azureADEndpoint = $cloudService.AzureADEndpoint
-$Script:applicationInfo = @{
-    "TenantID" = $OAuthTenantId
-    "ClientID" = $OAuthClientId
-}
-
-Get-OAuthToken
 
 $Action = "$Operation$Resource"
 
