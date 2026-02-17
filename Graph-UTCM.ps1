@@ -23,6 +23,7 @@
 #>
 
 # Version 20260212.1955
+[CmdletBinding(DefaultParameterSetName = '__AllParameterSets')]
 param (
     [ValidateSet("Global", "USGovernmentL4", "USGovernmentL5", "ChinaCloud")]
     [Parameter(Mandatory = $false, HelpMessage="The AzureEnvironment parameter specifies the cloud environment to target. Valid values are Global, USGovernmentL4, USGovernmentL5 and ChinaCloud. Default value is Global.")]
@@ -74,7 +75,7 @@ param (
     [Parameter(Mandatory = $false, HelpMessage="The DriftId parameter specifies the GUID of the configuration drift.")]
     [System.Guid]$DriftId,
 
-    [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams")]
+    [ValidateSet("Entra", "Exchange","Intune","SecurityAndCompliance","Teams","All")]
     [Parameter(Mandatory = $false, HelpMessage="The Resource parameter specifies the resource for which to create the configuration monitor. Valid values are Entra, Exchange, Intune, SecurityAndCompliance and Teams.")]
     [string]$Workload = "Exchange",
 
@@ -84,7 +85,16 @@ param (
 
     [ValidateScript({ Test-Path $_ })]
     [Parameter(Mandatory = $false, HelpMessage="The OutputPath parameter specifies the path for the EWS usage report.")]
-    [string] $OutputPath
+    [string] $OutputPath,
+
+    [Parameter(Mandatory=$false,ParameterSetName="Drift",HelpMessage="The CheckSnapshotDrift parameter specifies whether to check the snapshot drift.")]
+    [switch]$CheckSnapshotDrift,
+
+    [Parameter(Mandatory=$true,ParameterSetName="Drift",HelpMessage="The BaselineSnapshotId parameter specifies the GUID of the baseline snapshot job to compare the drift against.")]
+    [System.Guid]$BaselineSnapshotJobId,
+
+    [Parameter(Mandatory=$true,ParameterSetName="Drift",HelpMessage="The DriftSnapshotId parameter specifies the GUID of the latest snapshot job to compare against the baseline.")]
+    [System.Guid]$DriftSnapshotJobId
 )
 function Get-CloudServiceEndpoint {
     [CmdletBinding()]
@@ -1109,7 +1119,7 @@ function GetConfigurationSnapshot{
     param(
         [string]$ResourceLocation
     )
-    Write-Host "Getting the configuration snapshot for snapshot job with ID $($SnapshotJobId)..." -ForegroundColor Green
+    Write-Host "Getting the configuration snapshot for snapshot job..." -ForegroundColor Green
     $Query = $ResourceLocation.Replace("https://graph.microsoft.com/beta/","")
     $GraphParams = @{
         AccessToken         = $Script:Token
@@ -1124,7 +1134,8 @@ function GetConfigurationSnapshot{
 }
 
 function GetSnapshot{
-    $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)"
+    param($snapshotId)
+    $Query = "admin/configurationManagement/configurationSnapshotJobs/$($snapshotId)"
     $GraphParams = @{
         AccessToken         = $Script:Token
         GraphApiUrl         = $cloudService.graphApiEndpoint
@@ -1212,8 +1223,78 @@ if($AssignPermissions){
                 AssignAppPermissions -Permissions $secCompliancePermissions -ResourcePrincipal $ExchangeServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
                 AssignAppRoles -Roles $secComplianceRoles -UTCMServicePrincipal $UTCMServicePrincipal
             }
+            "All"{
+                Write-Host "Assigning permissions for all workloads is not implemented in this script yet" -ForegroundColor Green
+                $allPermissions = @('Group.Read.All','DeviceManagementConfiguration.Read.All','DeviceManagementApps.Read.All','DeviceManagementRBAC.Read.All','Organizatino.Read.All','Team.ReadBasic.All','User.Read.All','Application.Read.All', 'Policy.Read.All','Policy.Read.ConditionalAccess','Policy.Read.AuthenticationMethod','Group.Read.All','Agreement.Read.All', 'CustomSecAttributeDefinition.Read.All','EntitlementManagement.Read.All', 'Device.Read.All', 'Directory.Read.All', 'ReportSettings.Read.All','RoleEligibilitySchedule.Read.Directory','RoleManagementPolicy.Read.Directory','IdentityProvider.Read.All','Organization.Read.All')
+                $allRoles = @('Security Reader', 'Global Reader', 'Compliance Administrator')
+                $GraphServicePrincipal = GetGraphServicePrincipal
+                $ExchangeServicePrincipal = GetExchangeServicePrincipal
+                AssignAppPermissions -Permissions $allPermissions -ResourcePrincipal $GraphServicePrincipal -UTCMServicePrincipal $UTCMServicePrincipal
+                AssignAppRoles -Roles $allRoles -UTCMServicePrincipal $UTCMServicePrincipal
+            }
     }
     exit
+}
+
+if($CheckSnapshotDrift){
+    #$json1 = (Get-Content C:\Temp\Output\Snapshot-7d42546a-4482-43de-9df4-3fc3519aa45a.json | ConvertFrom-Json).resources
+    #$json2 = (Get-Content C:\Temp\Output\Snapshot-bc8c5a05-7503-435f-a5f5-7c61a1ecf9d9.json | ConvertFrom-Json).resources
+    GetSnapshot -snapshotId $BaselineSnapshotJobId | Out-Null
+    if($Global:snapshot.status -eq "succeeded" -or $Global:snapshot.status -eq "partiallySuccessful"){
+        $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
+        $Global:json1 = ($configSnapshot).resources
+    }
+    GetSnapshot -snapshotId $DriftSnapshotJobId | Out-Null
+    if($Global:snapshot.status -eq "succeeded" -or $Global:snapshot.status -eq "partiallySuccessful"){
+        $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
+        $Global:json2 = ($configSnapshot).resources
+    }
+    $totalResources = $json1.Count
+    $counter = 0
+    foreach($snapshotResource in $json1) {
+        $counter++
+        $resourceFound = $false
+        Write-Progress -Activity "Comparing snapshots" -Status "Processing resource $counter of $totalResources : $($snapshotResource.displayName)" -PercentComplete (($counter / $totalResources) * 100)
+        $matchingResource = $json2 | Where-Object { $_.displayName -eq $snapshotResource.displayName -and $_.resourceType -eq $snapshotResource.resourceType}
+        if ($null -ne $matchingResource) {
+            $resourceFound = $true
+            Write-Host "Comparing resource: $($snapshotResource.displayName)" -ForegroundColor Cyan
+            foreach($property in $snapshotResource.properties.psobject.properties) {
+                $matchingProperty = $matchingResource.properties.psobject.properties | Where-Object { $_.Name -eq $property.Name }
+                if ($null -ne $matchingProperty) {
+                    if ([string]$property.Value -ne [string]$matchingProperty.Value) {
+                        Write-Host "Resource ID: $($snapshotResource.displayName), Property: $($property.Name), OriginalValue: $($property.Value), NewValue: $($matchingProperty.Value)" -ForegroundColor Yellow
+                    }
+                }
+            }
+        }
+        if($resourceFound -eq $false){
+            Write-Host "Resource ID: $($snapshotResource.displayName) was not found in the second snapshot." -ForegroundColor Red
+        } 
+    }
+    $totalResources = $json2.Count
+    $counter = 0
+    Write-Host "Checking for new resources in the second snapshot that are not in the baseline snapshot..." -ForegroundColor Green
+    foreach($resource in $json2.resources) {
+        $counter++
+        $resourceFound = $false
+        Write-Progress -Activity "Comparing snapshots" -Status "Processing resource $counter of $totalResources : $($resource.displayName)" -PercentComplete (($counter / $totalResources) * 100)
+        $matchingResource = $json1.resources | Where-Object { $_.displayName -eq $resource.displayName -and $_.resourceType -eq $resource.resourceType}
+        if ($null -ne $matchingResource) {
+            $resourceFound = $true
+        }
+        else{
+        Write-Host "Resource: $($resource.displayName) was not found in the first snapshot." -ForegroundColor Yellow
+        $resource.properties.psobject.properties | ForEach-Object {
+            Write-Host "Property: $($_.Name), Value: $($_.Value)" -ForegroundColor Yellow
+            }
+        }
+    }
+    exit
+}
+
+if([string]::IsNullOrEmpty($Name)){
+    $Name = "$($Workload)$($Resource)$((Get-Date).ToString('yyyyMMddHHmmss'))"
 }
 
 if($Operation -eq "Delete" -and ($Resource -eq "Drift" -or $Resource -eq "MonitoringResult")){
@@ -1311,7 +1392,16 @@ switch($Action){
             $resourceTypes = [System.Collections.ArrayList]@($teamsResourceTypes)
         }
     }
+    "All" {
+        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+            $resourceTypes.Add($u.Name) | Out-Null
         }
+        $allResourceTypes = $resourceTypes | Out-GridView -Title "Select All resource types to include in the snapshot" -PassThru
+        if ($null -ne $allResourceTypes -and $allResourceTypes.Count -gt 0) {
+            $resourceTypes = [System.Collections.ArrayList]@($allResourceTypes)
+        }
+    }
+    }
         Write-Host "Creating a new snapshot for $($Workload) resources..." -ForegroundColor Green
         $graphBody = (@{
         #"displayName" = "$($Workload) Snapshot"
@@ -1342,7 +1432,7 @@ switch($Action){
 
     "GetSnapshot" {
         Write-Host "Getting the latest snapshot for $($SnapshotJobId) resources..." -ForegroundColor Green
-        GetSnapshot | Out-Null
+        GetSnapshot -snapshotId $SnapshotJobId | Out-Null
         #Write-Host "Snapshot Job ID $($SnapshotJobId): " -NoNewline
         #Write-Host $Global:snapshot.status -ForegroundColor Green
         $snapshot
@@ -1397,7 +1487,7 @@ switch($Action){
 
     "CreateMonitor" {
         Write-Host "Creating a new configuration monitor..." -ForegroundColor Green
-        GetSnapshot | Out-Null
+        GetSnapshot -snapshotId $SnapshotJobId | Out-Null
         if($Global:snapshot.status -eq "succeeded"){
             $BaselineObject = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
         }
@@ -1483,7 +1573,7 @@ switch($Action){
 
     "ExportSnapshot"{
         Write-Host "Exporting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
-        GetSnapshot | Out-Null
+        GetSnapshot -snapshotId $SnapshotJobId | Out-Null
         if($Global:snapshot.status -eq "succeeded"){
             $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
             $configSnapshot | ConvertTo-Json -Depth 100 | Out-File -FilePath "$($OutputPath)\Snapshot-$($SnapshotJobId).json" -Encoding UTF8
