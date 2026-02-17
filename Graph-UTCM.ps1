@@ -1275,17 +1275,17 @@ if($CheckSnapshotDrift){
     $totalResources = $json2.Count
     $counter = 0
     Write-Host "Checking for new resources in the second snapshot that are not in the baseline snapshot..." -ForegroundColor Green
-    foreach($resource in $json2.resources) {
+    foreach($snapshotResource in $json2) {
         $counter++
         $resourceFound = $false
-        Write-Progress -Activity "Comparing snapshots" -Status "Processing resource $counter of $totalResources : $($resource.displayName)" -PercentComplete (($counter / $totalResources) * 100)
-        $matchingResource = $json1.resources | Where-Object { $_.displayName -eq $resource.displayName -and $_.resourceType -eq $resource.resourceType}
+        Write-Progress -Activity "Comparing snapshots" -Status "Processing resource $counter of $totalResources : $($snapshotResource.displayName)" -PercentComplete (($counter / $totalResources) * 100)
+        $matchingResource = $json1 | Where-Object { $_.displayName -eq $snapshotResource.displayName -and $_.resourceType -eq $snapshotResource.resourceType}
         if ($null -ne $matchingResource) {
             $resourceFound = $true
         }
         else{
-        Write-Host "Resource: $($resource.displayName) was not found in the first snapshot." -ForegroundColor Yellow
-        $resource.properties.psobject.properties | ForEach-Object {
+        Write-Host "Resource: $($snapshotResource.displayName) was not found in the first snapshot." -ForegroundColor Yellow
+        $snapshotResource.properties.psobject.properties | ForEach-Object {
             Write-Host "Property: $($_.Name), Value: $($_.Value)" -ForegroundColor Yellow
             }
         }
@@ -1574,7 +1574,7 @@ switch($Action){
     "ExportSnapshot"{
         Write-Host "Exporting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
         GetSnapshot -snapshotId $SnapshotJobId | Out-Null
-        if($Global:snapshot.status -eq "succeeded"){
+        if($Global:snapshot.status -eq "succeeded" -or $global:snapshot.status -eq "partiallySuccessful"){
             $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
             $configSnapshot | ConvertTo-Json -Depth 100 | Out-File -FilePath "$($OutputPath)\Snapshot-$($SnapshotJobId).json" -Encoding UTF8
         }
