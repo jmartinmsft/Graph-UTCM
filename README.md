@@ -5,6 +5,8 @@ The unified tenant configuration management (UTCM) APIs allow administrators to 
 ## Description
 This PowerShell script can be used to create a snapshot of a tenant for baseline configuration, create a configuration monitor, and get configuration drift.
 
+This script can also compare shapshots for configuration drift, including new and removed resources.
+
 ## Requirements
 1. The script requires an application registration in Entra ID that has the Graph API permission for ConfigurationMonitoring.ReadWrite.All.
 2. The script requires addition Graph API permissions to use the AssignPermissions operation that include: Application.Read.All, AppRoleAssignment.ReadWrite.All, Directory.Read.All, and RoleManagement.ReadWrite.Directory
@@ -29,6 +31,10 @@ Check for configuration drifts
 Get the configuration drifts
 ```powershell
 .\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -Operation Get -Resource Drift -DriftId 660819fc-1c38-459b-bb8f-47019ec5068f
+```
+Check snapshots for configuration drifts
+```powershell
+.\Graph-UTCM.ps1 -OAuthClientId 2e542266-a1b2-4567-8901-abcdccd61976 -OAuthTenantId 9101fc97-a2e6-2255-a2d5-83e051e52057 -OAuthCertificate 7765BEC834A02FB0DF8686D13186ABC8BE265917 -CertificateStore CurrentUser -CheckSnapshotDrift -BaselineSnapshotJobId e47d7440-0246-49fc-b169-41803d0930ff -DriftSnapshotJobId bc4e3f2f-48fb-4d53-8e39-95483c735dc7
 ```
 
 ## Parameters
@@ -70,3 +76,9 @@ Get the configuration drifts
 **Name** - The Name parameter specifies the name of the snapshot to create.
 
 **OutputPath** - The OutputPath parameter specifies the path for the configuration snapshot export.
+
+**CheckSnapshotDrift** - The CheckSnapshotDrift switch specifies whether to check for snapshot drift.
+
+**BaselineSnapshotJobId** - The BaselineSnapshotId parameter specifies the GUID of the baseline snapshot job to compare the drift against.
+
+**DriftSnapshotJobId** - The DriftSnapshotId parameter specifies the GUID of the latest snapshot job to compare against the baseline.
