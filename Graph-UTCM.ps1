@@ -1004,8 +1004,16 @@ function GetGraphServicePrincipal{
         ExpectedStatusCode = "200"
         Endpoint            = "v1.0"
     }
-    $GraphServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-    return $GraphServicePrincipal
+    #Attempt to get the service principal for Microsoft Graph
+    try{
+        $GraphServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        return $GraphServicePrincipal
+    }
+    catch{
+        Write-Host "Failed to get service principal for Microsoft Graph" -ForegroundColor Red
+        Write-VerboseErrorInformation
+        exit
+    }
 }
 
 function GetUTCMServicePrincipal{
@@ -1018,8 +1026,16 @@ function GetUTCMServicePrincipal{
         ExpectedStatusCode = "200"
         Endpoint            = "v1.0"
     }
-    $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-    return $UTCMServicePrincipal
+    #Attempt to get the service principal for Unified Tenant Configuration Management (UTCM)
+    try{
+        $UTCMServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        return $UTCMServicePrincipal
+    }
+    catch{
+        Write-Host "Failed to get service principal for Unified Tenant Configuration Management (UTCM)" -ForegroundColor Red
+        Write-VerboseErrorInformation
+        exit
+    }
 }
 
 function GetExchangeServicePrincipal{
@@ -1032,8 +1048,16 @@ function GetExchangeServicePrincipal{
         ExpectedStatusCode = "200"
         Endpoint            = "v1.0"
     }
-    $ExchangeServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-    return $ExchangeServicePrincipal
+    #Attempt to get the service principal for Exchange Online
+    try{
+        $ExchangeServicePrincipal = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        return $ExchangeServicePrincipal
+    }
+    catch{
+        Write-Host "Failed to get service principal for Exchange Online" -ForegroundColor Red
+        Write-VerboseErrorInformation
+        exit
+    }
 }
 
 function AssignAppPermissions{
@@ -1042,6 +1066,7 @@ function AssignAppPermissions{
         $ResourcePrincipal,
         $UTCMServicePrincipal
     )
+    #Loop through the permissions and assign them to the service principal
     foreach($permission in $Permissions) {
         Write-Host "Assigning $permission permission to the application for the resources..." -ForegroundColor Green
         Write-Verbose $ResourcePrincipal.id
@@ -1071,11 +1096,11 @@ function AssignAppPermissions{
 }
 
 function AssignAppRoles{
-    #GET https://graph.microsoft.com/v1.0/roleManagement/directory/roleDefinitions?$filter=displayName eq 'Global Reader'&$select=id,displayName
     param(
         [object]$Roles,
         $UTCMServicePrincipal
     )
+    #Loop through the roles and assign them to the service principal
     foreach($role in $Roles){
         $Query = "roleManagement/directory/roleDefinitions?`$filter=displayName eq '$($role)'"
         $GraphParams = @{
@@ -1129,8 +1154,16 @@ function GetConfigurationSnapshot{
         ExpectedStatusCode = "200"
         Endpoint            = "beta"
     }
-    $Global:configurationSnapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-    return $Global:configurationSnapshot
+    #Attempt to get the configuration snapshot
+    try{
+        $Global:configurationSnapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        return $Global:configurationSnapshot
+    }
+    catch{
+        Write-Host "Failed to get configuration snapshot for snapshot job with resource location: $($ResourceLocation)" -ForegroundColor Red
+        Write-VerboseErrorInformation
+        exit
+    }
 }
 
 function GetSnapshot{
@@ -1144,8 +1177,16 @@ function GetSnapshot{
         ExpectedStatusCode = "200"
         Endpoint            = "beta"
     }
-    $Global:snapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-    return $Global:snapshot
+    #Attempt to get the snapshot
+    try{
+        $Global:snapshot = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+        return $Global:snapshot
+    }
+    catch{
+        Write-Host "Failed to get snapshot with ID $($snapshotId)" -ForegroundColor Red
+        Write-VerboseErrorInformation
+        exit
+    }
 }
 
 $cloudService = Get-CloudServiceEndpoint $AzureEnvironment
@@ -1158,7 +1199,7 @@ $Script:applicationInfo = @{
 Get-OAuthToken
 
 if($AssignPermissions){
-    #New-MgServicePrincipal -AppId '03b07b79-c5bc-4b5e-9bfa-13acf4a99998'
+    #Create the service principal for the Unified Tenant Configuration Management application
     if([string]::IsNullOrEmpty((GetUTCMServicePrincipal).id)){
          $Query = "servicePrincipals"
         $graphParams = @{
@@ -1177,13 +1218,14 @@ if($AssignPermissions){
         Write-Host "Waiting for 10 seconds to ensure the service principal is created before assigning permissions..." -ForegroundColor Green
         Start-Sleep -Seconds 10
     }
+    #Get the service principal object for the Unified Tenant Configuration Management application if it wasn't created
     if([string]::IsNullOrEmpty($newServicePrincipal.Id)){
         $UTCMServicePrincipal = GetUTCMServicePrincipal
     }
     else{
         $UTCMServicePrincipal = $newServicePrincipal.Response.Content | ConvertFrom-Json
     }
-                
+    #Add permissions and roles for the application based on the selected workload
     switch($Workload){
             "Entra" {
                 $entraRoles = @('Security Reader', 'Global Reader')
@@ -1237,8 +1279,7 @@ if($AssignPermissions){
 }
 
 if($CheckSnapshotDrift){
-    #$json1 = (Get-Content C:\Temp\Output\Snapshot-7d42546a-4482-43de-9df4-3fc3519aa45a.json | ConvertFrom-Json).resources
-    #$json2 = (Get-Content C:\Temp\Output\Snapshot-bc8c5a05-7503-435f-a5f5-7c61a1ecf9d9.json | ConvertFrom-Json).resources
+    #Get the configuration snapshot for the baseline and drift snapshots
     GetSnapshot -snapshotId $BaselineSnapshotJobId | Out-Null
     if($Global:snapshot.status -eq "succeeded" -or $Global:snapshot.status -eq "partiallySuccessful"){
         $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
@@ -1249,16 +1290,19 @@ if($CheckSnapshotDrift){
         $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
         $Global:json2 = ($configSnapshot).resources
     }
+    #Initialize a counter for progress tracking using the total count of resources in the baseline snapshot
     $totalResources = $json1.Count
     $counter = 0
+    #Loop through each resource in the baseline snapshot and compare it with the resources in the drift snapshot
     foreach($snapshotResource in $json1) {
         $counter++
         $resourceFound = $false
         Write-Progress -Activity "Comparing snapshots" -Status "Processing resource $counter of $totalResources : $($snapshotResource.displayName)" -PercentComplete (($counter / $totalResources) * 100)
         $matchingResource = $json2 | Where-Object { $_.displayName -eq $snapshotResource.displayName -and $_.resourceType -eq $snapshotResource.resourceType}
+        #Check if there is any changes for the resource by comparing the properties of the resource in the baseline snapshot with the properties of the matching resource in the drift snapshot
         if ($null -ne $matchingResource) {
             $resourceFound = $true
-            Write-Host "Comparing resource: $($snapshotResource.displayName)" -ForegroundColor Cyan
+            Write-Verbose "Comparing resource: $($snapshotResource.displayName)"
             foreach($property in $snapshotResource.properties.psobject.properties) {
                 $matchingProperty = $matchingResource.properties.psobject.properties | Where-Object { $_.Name -eq $property.Name }
                 if ($null -ne $matchingProperty) {
@@ -1268,13 +1312,16 @@ if($CheckSnapshotDrift){
                 }
             }
         }
+        #Check if the resource is missing in the drift snapshot and display the resource details if it is missing
         if($resourceFound -eq $false){
             Write-Host "Resource ID: $($snapshotResource.displayName) was not found in the second snapshot." -ForegroundColor Red
         } 
     }
+    #Initialize a counter for progress tracking using the total count of resources in the drift snapshot
     $totalResources = $json2.Count
     $counter = 0
     Write-Host "Checking for new resources in the second snapshot that are not in the baseline snapshot..." -ForegroundColor Green
+    #Loop through each resource in the drift snapshot and check if there are any new resources that are not in the baseline snapshot. Display the resource details if there are any new resources.
     foreach($snapshotResource in $json2) {
         $counter++
         $resourceFound = $false
@@ -1293,10 +1340,12 @@ if($CheckSnapshotDrift){
     exit
 }
 
+#Populate the Name variable with a default name if it is not provided by the user.
 if([string]::IsNullOrEmpty($Name)){
     $Name = "$($Workload)$($Resource)$((Get-Date).ToString('yyyyMMddHHmmss'))"
 }
 
+#Validate the parameters based on the operation and resource type.
 if($Operation -eq "Delete" -and ($Resource -eq "Drift" -or $Resource -eq "MonitoringResult")){
     Write-Host "Delete operation is not supported for $Resource resource. " -ForegroundColor Red
     exit
@@ -1306,10 +1355,6 @@ if($Operation -eq "Export" -and $Resource -ne "Snapshot"){
     exit
 }
 
-if(($Operation -eq "Create") -and [System.String]::IsNullOrWhiteSpace($Name)){
-    Write-Host "Please provide a name for the resource using the -Name parameter when creating a resource." -ForegroundColor Red
-    exit
-}
 if(((($Operation -eq "Get" -or $Operation -eq "Delete" -or $Operation -eq "Export") -and $Resource -eq "Snapshot")) -and [System.String]::IsNullOrWhiteSpace($SnapshotJobId)){
     Write-Host "Please provide a snapshot job ID using the -SnapshotJobId parameter when getting, deleting, or exporting a snapshot or monitor." -ForegroundColor Red
     exit
@@ -1327,84 +1372,97 @@ if(($Operation -eq "Get" -and $Resource -eq "Drift") -and [System.String]::IsNul
     exit
 }
 
+#Set the Action variable by combining the Operation and Resource parameters. This variable will be used in the switch statement to determine which block of code to execute based on the user's selection of operation and resource type.
 $Action = "$Operation$Resource"
 
 switch($Action){
     "CreateSnapshot" {
         $Query = "admin/configurationManagement/configurationSnapshots/createSnapshot"
+        #Download the latest version of the UTCM monitor definition from schemastore and save it as a local JSON file. This will be used to get the resource types for the snapshot based on the selected workload.
         #$utcmMonitor = (Invoke-WebRequest -Uri https://www.schemastore.org/utcm-monitor.json -UseBasicParsing) | ConvertFrom-Json
         #$utcmMonitor | ConvertTo-Json -Depth 100 | Out-File -FilePath ".\utcm-monitor.json" -Encoding UTF8
         $utcmMonitor = (Get-Content .\utcm-monitor.json -Raw | ConvertFrom-Json)
         $resourceTypes = New-Object System.Collections.ArrayList
         switch($Workload) {
-    "Entra" {
-        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
-            if($u.Name -like "microsoft.entra*") {
-                $resourceTypes.Add($u.Name) | Out-Null
+        "Entra" {
+            #Filter the resource types for Entra resources from the UTCM monitor definition
+            foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+                if($u.Name -like "microsoft.entra*") {
+                    $resourceTypes.Add($u.Name) | Out-Null
+                }
+            }
+            #Allow the user to select which Entra resource types to include in the snapshot using an Out-GridView selection
+            $entraResourceTypes = $resourceTypes | Out-GridView -Title "Select Entra resource types to include in the snapshot" -PassThru
+            if ($null -ne $entraResourceTypes -and $entraResourceTypes.Count -gt 0) {
+                $resourceTypes = [System.Collections.ArrayList]@($entraResourceTypes)
             }
         }
-        $entraResourceTypes = $resourceTypes | Out-GridView -Title "Select Entra resource types to include in the snapshot" -PassThru
-        if ($null -ne $entraResourceTypes -and $entraResourceTypes.Count -gt 0) {
-            $resourceTypes = [System.Collections.ArrayList]@($entraResourceTypes)
-        }
-    }
-    "Exchange" {
-        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
-            if($u.Name -like "microsoft.exchange*") {
-                $resourceTypes.Add($u.Name) | Out-Null
+        "Exchange" {
+            #Filter the resource types for Exchange resources from the UTCM monitor definition
+            foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+                if($u.Name -like "microsoft.exchange*") {
+                    $resourceTypes.Add($u.Name) | Out-Null
+                }
+            }
+            #Allow the user to select which Exchange resource types to include in the snapshot using an Out-GridView selection
+            $exchResourceTypes = $resourceTypes | Out-GridView -Title "Select Exchange resource types to include in the snapshot" -PassThru
+            if ($null -ne $exchResourceTypes -and $exchResourceTypes.Count -gt 0) {
+                $resourceTypes = [System.Collections.ArrayList]@($exchResourceTypes)
             }
         }
-        $exchResourceTypes = $resourceTypes | Out-GridView -Title "Select Exchange resource types to include in the snapshot" -PassThru
-        if ($null -ne $exchResourceTypes -and $exchResourceTypes.Count -gt 0) {
-            $resourceTypes = [System.Collections.ArrayList]@($exchResourceTypes)
-        }
-    }
-    "Intune" {
-        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
-            if($u.Name -like "microsoft.intune*") {
-                $resourceTypes.Add($u.Name) | Out-Null
+        "Intune" {
+            #Filter the resource types for Intune resources from the UTCM monitor definition
+            foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+                if($u.Name -like "microsoft.intune*") {
+                    $resourceTypes.Add($u.Name) | Out-Null
+                }
+            }
+            #Allow the user to select which Intune resource types to include in the snapshot using an Out-GridView selection
+            $intuneResourceTypes = $resourceTypes | Out-GridView -Title "Select Intune resource types to include in the snapshot" -PassThru
+            if ($null -ne $intuneResourceTypes -and $intuneResourceTypes.Count -gt 0) {
+                $resourceTypes = [System.Collections.ArrayList]@($intuneResourceTypes)
             }
         }
-        $intuneResourceTypes = $resourceTypes | Out-GridView -Title "Select Intune resource types to include in the snapshot" -PassThru
-        if ($null -ne $intuneResourceTypes -and $intuneResourceTypes.Count -gt 0) {
-            $resourceTypes = [System.Collections.ArrayList]@($intuneResourceTypes)
-        }
-    }
-    "SecurityAndCompliance" {
-        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
-            if($u.Name -like "microsoft.securityandcompliance*") {
-                $resourceTypes.Add($u.Name) | Out-Null
+        "SecurityAndCompliance" {
+            #Filter the resource types for Security and Compliance resources from the UTCM monitor definition
+            foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+                if($u.Name -like "microsoft.securityandcompliance*") {
+                    $resourceTypes.Add($u.Name) | Out-Null
+                }
+            }
+            #Allow the user to select which Security and Compliance resource types to include in the snapshot using an Out-GridView selection
+            $secComplianceResourceTypes = $resourceTypes | Out-GridView -Title "Select Security and Compliance resource types to include in the snapshot" -PassThru
+            if ($null -ne $secComplianceResourceTypes -and $secComplianceResourceTypes.Count -gt 0) {
+                $resourceTypes = [System.Collections.ArrayList]@($secComplianceResourceTypes)
             }
         }
-        $secComplianceResourceTypes = $resourceTypes | Out-GridView -Title "Select Security and Compliance resource types to include in the snapshot" -PassThru
-        if ($null -ne $secComplianceResourceTypes -and $secComplianceResourceTypes.Count -gt 0) {
-            $resourceTypes = [System.Collections.ArrayList]@($secComplianceResourceTypes)
-        }
-    }
-    "Teams" {
-        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
-            if($u.Name -like "microsoft.teams*") {
-                $resourceTypes.Add($u.Name) | Out-Null
+        "Teams" {
+            #Filter the resource types for Teams resources from the UTCM monitor definition
+            foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+                if($u.Name -like "microsoft.teams*") {
+                    $resourceTypes.Add($u.Name) | Out-Null
+                }
+            }
+            #Allow the user to select which Teams resource types to include in the snapshot using an Out-GridView selection
+            $teamsResourceTypes = $resourceTypes | Out-GridView -Title "Select Teams resource types to include in the snapshot" -PassThru
+            if ($null -ne $teamsResourceTypes -and $teamsResourceTypes.Count -gt 0) {
+                $resourceTypes = [System.Collections.ArrayList]@($teamsResourceTypes)
             }
         }
-        $teamsResourceTypes = $resourceTypes | Out-GridView -Title "Select Teams resource types to include in the snapshot" -PassThru
-        if ($null -ne $teamsResourceTypes -and $teamsResourceTypes.Count -gt 0) {
-            $resourceTypes = [System.Collections.ArrayList]@($teamsResourceTypes)
+        "All" {
+            #Use all resource types from the UTCM monitor definition
+            foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
+                $resourceTypes.Add($u.Name) | Out-Null
+            }
+            #Allow the user to select which resource types to include in the snapshot using an Out-GridView selection
+            $allResourceTypes = $resourceTypes | Out-GridView -Title "Select All resource types to include in the snapshot" -PassThru
+            if ($null -ne $allResourceTypes -and $allResourceTypes.Count -gt 0) {
+                $resourceTypes = [System.Collections.ArrayList]@($allResourceTypes)
+            }
         }
-    }
-    "All" {
-        foreach($u in $utcmMonitor.'$defs'.psobject.properties) {
-            $resourceTypes.Add($u.Name) | Out-Null
-        }
-        $allResourceTypes = $resourceTypes | Out-GridView -Title "Select All resource types to include in the snapshot" -PassThru
-        if ($null -ne $allResourceTypes -and $allResourceTypes.Count -gt 0) {
-            $resourceTypes = [System.Collections.ArrayList]@($allResourceTypes)
-        }
-    }
     }
         Write-Host "Creating a new snapshot for $($Workload) resources..." -ForegroundColor Green
         $graphBody = (@{
-        #"displayName" = "$($Workload) Snapshot"
         "displayName" = $Name
         "description" = "This snapshot was created by the UTCM Graph API test script for all $($Workload) resources"
         "resources" = @($resourceTypes)
@@ -1419,7 +1477,7 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-
+        #Create the snapshot and store the snapshot job ID in a global variable for later use
         try{
             $Global:configurationSnapshot = Invoke-GraphApiRequest @GraphParams
             Write-Host "Snapshot Job ID $($Global:configurationSnapshot.Content.id) created" -ForegroundColor Green
@@ -1431,15 +1489,13 @@ switch($Action){
     }
 
     "GetSnapshot" {
-        Write-Host "Getting the latest snapshot for $($SnapshotJobId) resources..." -ForegroundColor Green
+        Write-Host "Getting the snapshot for $($SnapshotJobId)..." -ForegroundColor Green
         GetSnapshot -snapshotId $SnapshotJobId | Out-Null
-        #Write-Host "Snapshot Job ID $($SnapshotJobId): " -NoNewline
-        #Write-Host $Global:snapshot.status -ForegroundColor Green
         $snapshot
     }
 
     "DeleteSnapshot" {
-        Write-Host "Deleting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
+        Write-Host "Deleting snapshot with Job ID $($SnapshotJobId)... " -ForegroundColor Green -NoNewline
         $Query = "admin/configurationManagement/configurationSnapshotJobs/$($SnapshotJobId)"
         $GraphParams = @{
             AccessToken         = $Script:Token
@@ -1449,7 +1505,15 @@ switch($Action){
             ExpectedStatusCode = "204"
             Endpoint            = "beta"
         }
-        $deleteSnapot = Invoke-GraphApiRequest @GraphParams
+        #Attempt to delete the snapshot job with the specified snapshot job ID.
+        try {
+            Invoke-GraphApiRequest @GraphParams | Out-Null
+            Write-Host "success"
+        }
+        catch{
+            Write-Host "failed" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
     }
 
     "ListSnapshot" {
@@ -1463,9 +1527,16 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:snapshots = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        foreach($snapshot in $Global:snapshots.value) {
-            Write-Host "Snapshot Job ID: $($snapshot.id) Display Name: $($snapshot.displayName) Status: $($snapshot.status)" -ForegroundColor Green
+        #Attempt to get the list of snapshot jobs and display the job ID, display name, and status for each snapshot job. If the request fails, display an error message.
+        try{
+            $Global:snapshots = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            foreach($snapshot in $Global:snapshots.value) {
+                Write-Host "Snapshot Job ID: $($snapshot.id) Display Name: $($snapshot.displayName) Status: $($snapshot.status)" -ForegroundColor Green
+            }
+        }
+        catch{
+            Write-Host "Failed to list snapshot jobs" -ForegroundColor Red
+            Write-VerboseErrorInformation
         }
     }
 
@@ -1487,12 +1558,14 @@ switch($Action){
 
     "CreateMonitor" {
         Write-Host "Creating a new configuration monitor..." -ForegroundColor Green
+        #Get the configuration baseline snapshot to obtain the resource location details
         GetSnapshot -snapshotId $SnapshotJobId | Out-Null
-        if($Global:snapshot.status -eq "succeeded"){
+        #Get the configuration snapshot
+        if($Global:snapshot.status -eq "succeeded" -or $Global:snapshot.status -eq "partiallySuccessful"){
             $BaselineObject = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
         }
         else{
-            Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeeded state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
+            Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeessful state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
         }
         $Query = "admin/configurationManagement/configurationMonitors"
         $graphBody = (@{
@@ -1513,6 +1586,7 @@ switch($Action){
             ExpectedStatusCode = "201"
             Endpoint            = "beta"
         }
+        #Create the configuration monitor and store the configuration monitor ID in a global variable for later use.
         try{
             $Global:configurationMonitor = Invoke-GraphApiRequest @GraphParams
             Write-Host "Configuration Monitor ID $($Global:configurationMonitor.Content.id) created" -ForegroundColor Green
@@ -1534,9 +1608,16 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:configurationMonitors = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        foreach($configurationMonitor in $Global:configurationMonitors.value) {
-            Write-Host "Configuration Monitor ID: $($configurationMonitor.id) Display Name: $($configurationMonitor.displayName)" -ForegroundColor Green
+        #Attempt to get the list of configuration monitors and display the monitor ID and display name for each configuration monitor. If the request fails, display an error message.
+        try{
+            $Global:configurationMonitors = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            foreach($configurationMonitor in $Global:configurationMonitors.value) {
+                Write-Host "Configuration Monitor ID: $($configurationMonitor.id) Display Name: $($configurationMonitor.displayName)" -ForegroundColor Green
+            }
+        }
+        catch{
+            Write-Host "Failed to list configuration monitors" -ForegroundColor Red
+            Write-VerboseErrorInformation
         }
     }
 
@@ -1551,14 +1632,19 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:configurationMonitor = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        #Write-Host "Configuration Monitor with ID $($MonitorId):" -ForegroundColor Green
-        #Write-Host ($Global:configurationMonitor | ConvertTo-Json -Depth 10)
-        $configurationMonitor
+        try{
+            $Global:configurationMonitor = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            $configurationMonitor
+        }
+        catch{
+            Write-Host "Failed to get configuration monitor with ID $($MonitorId)" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
+        
     }
 
     "DeleteMonitor"{
-        Write-Host "Deleting configuration monitor with ID $($MonitorId)..." -ForegroundColor Green
+        Write-Host "Deleting configuration monitor with ID $($MonitorId)... " -ForegroundColor Green -NoNewline
         $Query = "admin/configurationManagement/configurationMonitors/$($MonitorId)"
         $GraphParams = @{
             AccessToken         = $Script:Token
@@ -1568,18 +1654,28 @@ switch($Action){
             ExpectedStatusCode = "204"
             Endpoint            = "beta"
         }
-        $deleteMonitor = Invoke-GraphApiRequest @GraphParams
+        #Attempt to delete the configuration monitor with the specified configuration monitor ID.
+        try{
+            Invoke-GraphApiRequest @GraphParams | Out-Null
+            Write-Host "success"
+        }
+        catch{
+            Write-Host "failed" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
     }
 
     "ExportSnapshot"{
         Write-Host "Exporting snapshot with Job ID $($SnapshotJobId)..." -ForegroundColor Green
+        #Attempt to get the snapshot
         GetSnapshot -snapshotId $SnapshotJobId | Out-Null
+        #Attempt to get the configuration snapshot for the snapshot job and export the snapshot to a JSON file in the specified output path
         if($Global:snapshot.status -eq "succeeded" -or $global:snapshot.status -eq "partiallySuccessful"){
             $configSnapshot = GetConfigurationSnapshot -ResourceLocation $Global:snapshot.resourceLocation
             $configSnapshot | ConvertTo-Json -Depth 100 | Out-File -FilePath "$($OutputPath)\Snapshot-$($SnapshotJobId).json" -Encoding UTF8
         }
         else{
-            Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeeded state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
+            Write-Host "Snapshot job with ID $($SnapshotJobId) is not in a succeessful state. Current state: $($Global:snapshot.status)" -ForegroundColor Red
         }
     }
 
@@ -1594,10 +1690,16 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:monitoringResults = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        foreach($result in $Global:monitoringResults.value) {
-            #Write-Host "Monitoring Result ID: $($result.id) MonitorId: $($result.monitorId) Status: $($result.runStatus) DriftsCount: $($result.driftsCount)" -ForegroundColor Green
-            $result
+        #Attempt to get the list of monitoring results and display the monitor ID, status, and drifts count for each monitoring result. If the request fails, display an error message.
+        try{
+            $Global:monitoringResults = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            foreach($result in $Global:monitoringResults.value) {
+                $result
+            }
+        }
+        catch{
+            Write-Host "Failed to list monitoring results" -ForegroundColor Red
+            Write-VerboseErrorInformation
         }
     }
 
@@ -1612,10 +1714,15 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:monitoringResult = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        #Write-Host "Monitoring Result with ID $($MonitoringResultId):" -ForegroundColor Green
-        #Write-Host ($Global:monitoringResult | ConvertTo-Json -Depth 10)
-        $monitoringResult
+        #Attempt to get the monitoring result with the specified monitoring result ID and display the details of the monitoring result.
+        try{
+            $Global:monitoringResult = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            $monitoringResult
+        }
+        catch{
+            Write-Host "Failed to get monitoring result with ID $($MonitoringResultId)" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
     }
 
     "ListDrift"{
@@ -1629,9 +1736,16 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:configurationDrifts = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        foreach($drift in $Global:configurationDrifts.value) {
-            Write-Host "Configuration Drift ID: $($drift.id) MonitorID: $($drift.monitorId) Resource Type: $($drift.resourceType)" -ForegroundColor Green
+        #Attempt to get the list of configuration drifts and display the drift ID, monitor ID, and resource type for each configuration drift.
+        try{
+            $Global:configurationDrifts = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            foreach($drift in $Global:configurationDrifts.value) {
+                Write-Host "Configuration Drift ID: $($drift.id) MonitorID: $($drift.monitorId) Resource Type: $($drift.resourceType)" -ForegroundColor Green
+            }
+        }
+        catch{
+            Write-Host "Failed to list configuration drifts" -ForegroundColor Red
+            Write-VerboseErrorInformation
         }
     }
 
@@ -1646,9 +1760,16 @@ switch($Action){
             ExpectedStatusCode = "200"
             Endpoint            = "beta"
         }
-        $Global:configurationDrift = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
-        Write-Host "Configuration Drift with ID $($DriftId):" -ForegroundColor Green
-        Write-Host ($Global:configurationDrift | ConvertTo-Json -Depth 10)
+        #Attempt to get the configuration drift with the specified configuration drift ID and display the details of the configuration drift.
+        try{
+            $Global:configurationDrift = ((Invoke-GraphApiRequest @GraphParams).Response.Content) | ConvertFrom-Json
+            Write-Host "Configuration Drift with ID $($DriftId):" -ForegroundColor Green
+            Write-Host ($Global:configurationDrift | ConvertTo-Json -Depth 10)
+        }
+        catch{
+            Write-Host "Failed to get configuration drift with ID $($DriftId)" -ForegroundColor Red
+            Write-VerboseErrorInformation
+        }
     }
 }
 
